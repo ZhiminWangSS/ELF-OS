@@ -1,0 +1,49 @@
+# Operating system and editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# C/C++ and robotics build outputs
+build/
+install/
+log/
+devel/
+cmake-build-*/
+compile_commands.json
+
+# Runtime outputs
+outputs/
+runs/
+logs/
+*.bag
+*.bag.active
+*.db3
+
+# Models and datasets (store download instructions instead)
+checkpoints/
+weights/
+datasets/
+*.ckpt
+*.onnx
+*.pt
+*.pth
+*.safetensors
+*.engine
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.local.yaml
+*.local.yml
+*.local.json
