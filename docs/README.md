@@ -1,7 +1,6 @@
-# Documentation
+# 文档
 
-Long-form project documentation lives here, including architecture decisions,
-development setup, simulator usage, robot deployment, model integration,
-calibration, troubleshooting, and safety procedures.
+本目录存放项目的详细文档，包括架构决策、开发环境搭建、仿真器使用、真机部署、
+模型集成、标定、故障排查和安全操作流程。
 
-Keep the root README focused on orientation and link detailed guides from it.
+根目录 README 仅保留项目导航所需的精简内容，并从根 README 链接到本目录中的详细指南。

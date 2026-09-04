@@ -1,12 +1,10 @@
-# Tests
+# 测试
 
-Cross-component tests and test infrastructure live here. Organize future suites
-by execution environment:
+本目录存放跨组件测试和测试基础设施。后续建议按执行环境组织测试集：
 
-- `unit/` for fast isolated tests;
-- `integration/` for component interactions;
-- `simulation/` for end-to-end simulated scenarios;
-- `hardware_in_loop/` for tests requiring physical devices.
+- `unit/`：快速、隔离的单元测试；
+- `integration/`：组件交互的集成测试；
+- `simulation/`：仿真环境中的端到端场景测试；
+- `hardware_in_loop/`：需要物理设备的硬件在环测试。
 
-Hardware-in-loop tests must default to a safe, non-actuating state and clearly
-document all prerequisites.
+硬件在环测试必须默认处于安全、不触发执行器的状态，并明确记录所有前置条件。

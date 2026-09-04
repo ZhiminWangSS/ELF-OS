@@ -1,13 +1,12 @@
-# Robot
+# 真机
 
-Code that runs on or directly communicates with the physical ELF robot lives
-here, including:
+本目录存放在 ELF 真机上运行或与真机直接通信的代码，包括：
 
-- hardware drivers and vendor SDK adapters;
-- sensor and actuator bridges;
-- robot bring-up, locomotion, and control;
-- health monitoring, emergency-stop, and safety logic;
-- on-robot launch and service definitions.
+- 硬件驱动和厂商 SDK 适配层；
+- 传感器与执行器桥接组件；
+- 真机启动、运动和控制代码；
+- 健康监测、紧急停机和安全逻辑；
+- 机载启动文件和系统服务定义。
 
-Hardware-independent algorithms and message definitions belong in `../common/`.
-Secrets and per-robot calibration overrides must not be committed.
+与硬件无关的算法和消息定义应放在 `../common/` 中。不得提交密钥或单台
+机器人的本地标定覆盖配置。

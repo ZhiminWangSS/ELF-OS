@@ -1,12 +1,11 @@
-# Simulation
+# 仿真
 
-Simulation-only code lives here, including:
+本目录存放仅用于仿真环境的代码，包括：
 
-- simulator adapters and plugins;
-- robot descriptions, virtual sensors, scenes, and assets;
-- simulation launch files and evaluation scenarios;
-- synthetic-data and domain-randomization utilities.
+- 仿真器适配层和插件；
+- 机器人描述、虚拟传感器、场景和资源；
+- 仿真启动文件和评测场景；
+- 合成数据和域随机化工具。
 
-Keep interfaces that must also run on the physical robot in `../common/`.
-Large simulator assets should be downloaded by a script in `../tools/` rather
-than committed directly.
+需要同时在真机上运行的接口应放在 `../common/` 中。大型仿真资源不应直接提交，
+应在 `../tools/` 中提供可复现的下载脚本。

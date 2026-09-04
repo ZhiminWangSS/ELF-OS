@@ -1,8 +1,6 @@
-# Tools
+# 工具
 
-Developer and operational utilities live here, such as environment setup,
-dependency checks, asset downloads, dataset preparation, model conversion, and
-release packaging.
+本目录存放开发和运维工具，例如环境搭建、依赖检查、资源下载、数据集准备、模型
+转换和发布打包工具。
 
-Scripts should be non-interactive where practical, safe to run repeatedly, and
-document their required inputs.
+脚本应尽量采用非交互方式，确保可安全重复运行，并明确说明必需的输入。

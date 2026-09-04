@@ -1,13 +1,12 @@
-# Inference
+# 模型推理
 
-Model runtime code lives here, including:
+本目录存放模型运行时代码，包括：
 
-- model interfaces and backend adapters;
-- input preprocessing and output postprocessing;
-- local and remote inference runners;
-- acceleration, quantization, and export integrations;
-- latency and accuracy benchmarks.
+- 模型接口和推理后端适配层；
+- 输入预处理和输出后处理；
+- 本地与远程推理运行器；
+- 加速、量化和模型导出集成；
+- 延迟与精度基准测试。
 
-Model weights are intentionally ignored by Git. Add reproducible download or
-conversion scripts under `../tools/` and record model configuration in
-`../configs/inference/` when that directory is introduced.
+模型权重已设置为不纳入 Git。请在 `../tools/` 中添加可复现的下载或转换脚本，
+并在后续建立的 `../configs/inference/` 目录中记录模型配置。

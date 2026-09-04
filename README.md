@@ -1,36 +1,33 @@
 # ELF-OS
 
-ELF-OS is the official software repository for the ELF quadruped robot. It
-keeps simulation, on-robot software, and model inference separated while
-sharing stable interfaces and reusable components.
+ELF-OS 是 ELF 四足机器人的官方软件仓库。本仓库将仿真、真机运行与模型推理
+代码分开管理，同时通过稳定的接口和可复用组件实现能力共享。
 
-## Repository layout
+## 仓库结构
 
 ```text
 ELF-OS/
-├── simulation/   # Simulator adapters, robot models, scenes, and launch files
-├── robot/        # Hardware drivers, bring-up, control, and safety code
-├── inference/    # Model loading, preprocessing, inference, and postprocessing
-├── common/       # Shared interfaces, messages, utilities, and algorithms
-├── configs/      # Version-controlled configuration for each runtime
-├── tools/        # Setup, data, conversion, and developer utilities
-├── docs/         # Architecture, setup, deployment, and operation guides
-└── tests/        # Unit, integration, simulation, and hardware-in-loop tests
+├── simulation/   # 仿真器适配、机器人模型、场景和启动文件
+├── robot/        # 硬件驱动、真机启动、控制与安全代码
+├── inference/    # 模型加载、数据预处理、推理和后处理
+├── common/       # 共用接口、消息定义、工具和算法
+├── configs/      # 各运行环境中需要纳入版本管理的配置
+├── tools/        # 环境搭建、数据处理、模型转换和开发工具
+├── docs/         # 架构、安装、部署和操作文档
+└── tests/        # 单元、集成、仿真和硬件在环测试
 ```
 
-Each top-level directory contains a README describing what belongs there.
+每个顶层目录都包含一份 README，用于说明该目录的职责与内容边界。
 
-## Development principles
+## 开发原则
 
-- Keep simulator-specific dependencies under `simulation/` and hardware-specific
-  dependencies under `robot/`.
-- Define contracts shared by simulation and the physical robot in `common/`.
-- Keep model weights, datasets, logs, build outputs, and local secrets out of Git.
-- Put reproducible runtime settings in `configs/`; do not hard-code machine paths.
-- Add tests alongside every production feature, using the closest matching suite
-  under `tests/`.
+- 仿真器专用依赖放在 `simulation/`，硬件专用依赖放在 `robot/`。
+- 仿真与真机共用的接口和数据契约定义在 `common/`。
+- 模型权重、数据集、日志、构建产物和本地密钥不纳入 Git。
+- 可复现的运行配置放在 `configs/`，不要在代码中写死本机路径。
+- 新增功能时同步在 `tests/` 中最匹配的测试集下添加测试。
 
-## Status
+## 当前状态
 
-The repository is currently being bootstrapped. Build, installation, and runtime
-instructions will be added as the first software components land.
+仓库目前处于初始搭建阶段。随着首批软件组件接入，将逐步补充构建、安装和
+运行说明。

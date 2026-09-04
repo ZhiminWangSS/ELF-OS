@@ -1,7 +1,6 @@
-# Common
+# 共用组件
 
-Reusable, platform-independent code shared by simulation, the physical robot,
-and inference lives here. Typical contents include interfaces, message schemas,
-geometry helpers, navigation components, logging, and error definitions.
+本目录存放仿真、真机和模型推理共用的可复用、平台无关代码。典型内容包括接口、
+消息结构、几何工具、导航组件、日志和错误定义。
 
-This directory must not depend on a specific simulator or hardware vendor SDK.
+本目录中的代码不得依赖特定仿真器或硬件厂商 SDK。

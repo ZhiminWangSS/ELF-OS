@@ -1,8 +1,7 @@
-# Configs
+# 配置
 
-Version-controlled runtime configuration lives here. Organize future settings
-by concern, for example `simulation/`, `robot/`, and `inference/`, with shared
-defaults kept separate from environment-specific overrides.
+本目录存放需要纳入版本管理的运行配置。后续建议按用途划分为 `simulation/`、
+`robot/` 和 `inference/` 等子目录，并将共用默认值与特定环境的覆盖配置分开。
 
-Do not commit credentials, tokens, private endpoints, or machine-specific paths.
-Use documented environment variables and checked-in example files instead.
+不得提交凭证、令牌、私有服务地址或本机专用路径。请改用有文档说明的环境变量和
+可提交的示例配置文件。
