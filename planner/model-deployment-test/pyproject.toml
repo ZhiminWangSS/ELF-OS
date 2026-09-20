@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "elf-os-model-deployment-test"
+version = "0.1.0"
+description = "NaVILA execution module for ELF-OS Go2 experiments"
+requires-python = ">=3.8"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["model_deployment_test*"]

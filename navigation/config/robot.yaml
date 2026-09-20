@@ -1,0 +1,12 @@
+# Footprint confirmed by onsite operator 2026-09-17: no arm, within 0.90 x 0.60 m.
+# Mount transform remains approximate; this is a supervised short test, not calibration acceptance.
+verified: true
+base_from_imu_xyz: [0.0, 0.0, 0.46]
+base_from_imu_rpy: [0.0, 0.5235987756, 0.0]
+footprint: [[0.45, 0.30], [0.45, -0.30], [-0.45, -0.30], [-0.45, 0.30]]
+obstacle_min_height: 0.15
+obstacle_max_height: 1.2
+max_vx: 0.20
+max_yaw_rate: 0.35
+command_timeout_s: 0.25
+sensor_timeout_s: 0.5

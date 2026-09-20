@@ -10,6 +10,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+Testing/
 .venv/
 venv/
 
@@ -25,6 +26,7 @@ compile_commands.json
 outputs/
 runs/
 logs/
+captures/
 *.bag
 *.bag.active
 *.db3
@@ -33,12 +35,16 @@ logs/
 checkpoints/
 weights/
 datasets/
+documents/
+Livox-SDK2/
+navigation/maps/
 *.ckpt
 *.onnx
 *.pt
 *.pth
 *.safetensors
 *.engine
+*.pcd
 
 # Local configuration and secrets
 .env
@@ -47,3 +53,19 @@ datasets/
 *.local.yaml
 *.local.yml
 *.local.json
+
+# Third-party repositories managed independently
+mapping/catkin_hengqin_ws/
+mapping/code/
+mapping/fastlio_ws/
+mapping/livox_ros_driver2/
+mapping/mid_360_seeker_omni-d/
+mapping/nav2_ws/
+mapping/pcd2pgm_ws/
+mapping/piper_sdk_demo/
+mapping/reloc2_ws/
+mapping/unitree_ros2/
+mapping/voice-chat/
+
+# Local workspace link; recreate after fetching the driver dependency
+mapping/ws_livox/src/livox_ros_driver2

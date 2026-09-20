@@ -1,0 +1,8 @@
+# Named map-frame navigation targets recorded onsite.
+map_id: floor_1789552084236
+locations:
+  room_1705:
+    x: 7.256
+    y: 1.144
+    yaw_deg: 69.6
+    recorded_at: '2026-09-20T14:48:58+08:00'

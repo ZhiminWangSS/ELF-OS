@@ -1,0 +1,75 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Tool Properties
+    Name: Tool Properties
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Fixed Frame: map
+    Background Color: 40; 40; 40
+    Frame Rate: 20
+  Displays:
+    - Class: rviz_default_plugins/Map
+      Name: Navigation Map
+      Enabled: true
+      Alpha: 1
+      Topic:
+        Value: /map
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+        History Policy: Keep Last
+        Depth: 1
+    - Class: rviz_default_plugins/Map
+      Name: Local Costmap
+      Enabled: true
+      Alpha: 0.5
+      Color Scheme: costmap
+      Topic:
+        Value: /local_costmap/costmap
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+        Depth: 1
+    - Class: rviz_default_plugins/Path
+      Name: Planned Path
+      Enabled: true
+      Color: 0; 255; 0
+      Line Style: Lines
+      Line Width: 0.05
+      Topic:
+        Value: /plan
+        Depth: 10
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Live Obstacles
+      Enabled: true
+      Size (m): 0.05
+      Style: Flat Squares
+      Color Transformer: FlatColor
+      Color: 255; 80; 50
+      Topic:
+        Value: /navigation/obstacles
+        Reliability Policy: Best Effort
+        Depth: 1
+    - Class: rviz_default_plugins/TF
+      Name: Robot Frames
+      Enabled: true
+      Show Names: true
+      Show Axes: true
+      Show Arrows: false
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/SetInitialPose
+      Topic: /initialpose
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Name: Floor
+      Target Frame: map
+      Scale: 20
+      X: -9
+      Y: -8
+Window Geometry:
+  Width: 1200
+  Height: 850

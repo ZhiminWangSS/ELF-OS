@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "elf-os-model-deployment"
+version = "0.2.0"
+description = "Model-agnostic ELF-OS Go2 deployment runner"
+requires-python = ">=3.8"
+
+[tool.setuptools.packages.find]
+where = ["."]

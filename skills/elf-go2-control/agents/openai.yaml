@@ -1,0 +1,6 @@
+interface:
+  display_name: "ELF Go2 基础控制"
+  short_description: "读取 Go2 实时图像与状态，执行受限短步、停止并记录结果"
+  default_prompt: "使用 $elf-go2-control 观察机器狗前方，并按我的移动指令执行一个短步后核验结果。"
+policy:
+  allow_implicit_invocation: true
