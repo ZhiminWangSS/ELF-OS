@@ -429,6 +429,9 @@ border:1px solid var(--line);background:#0a111a;color:var(--text);font-size:14px
 #cmdin:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(56,189,248,.15)}
 #nlbar .go{flex:none;padding:9px 18px;font-size:14px}
 #nlbar .mark{flex:none;padding:9px 14px;font-size:13px}
+#micbtn.listening{background:#7f1d1d;border-color:#ef4444;color:#fecaca;
+animation:micpulse 1.2s infinite}
+@keyframes micpulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.55)}50%{box-shadow:0 0 0 9px rgba(239,68,68,0)}}
 #main{display:flex;flex:1;min-height:0}
 #mapwrap{flex:1;position:relative;overflow:hidden;background:#070b10}
 #map{position:absolute;left:0;top:0;transform-origin:top left}
@@ -480,6 +483,7 @@ box-shadow:0 4px 14px rgba(220,38,38,.25)}
  <input id="cmdin" list="placelist" placeholder='输入指令，例如"去1705门口"或"带我去有打印机的那间"'>
  <datalist id="placelist"></datalist>
  <button class="primary go" onclick="sendAsk()">🧠 解析目标</button>
+ <button class="ghost mark" id="micbtn" title="点击开始说话，说完自动解析" onclick="toggleMic()">🎤 语音</button>
  <button class="ghost mark" title="把机器狗当前位置保存为一个地点" onclick="markPlace()">📍 标记当前位置</button>
 </div>
 <div id="main">
@@ -760,6 +764,40 @@ async function markPlace(){
     }else renderErr(d.error);
   }catch(err){renderErr("标记失败: "+err);}
 }
+/* ---------- voice input (Chrome/Edge Web Speech API; needs HTTPS) ---------- */
+let recog=null, listening=false;
+function setupMic(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){$("micbtn").style.display="none";return;}
+  if(!window.isSecureContext){
+    $("micbtn").title="麦克风需要 HTTPS 访问（https://机器狗IP:8443）";
+    $("micbtn").style.opacity=.45;return;
+  }
+  recog=new SR();
+  recog.lang="zh-CN"; recog.continuous=false; recog.interimResults=true;
+  recog.onresult=e=>{
+    let fin="",tmp="";
+    for(const r of e.results){if(r.isFinal)fin+=r[0].transcript;else tmp+=r[0].transcript;}
+    $("cmdin").value=fin||tmp;
+  };
+  recog.onend=()=>{
+    listening=false;
+    $("micbtn").classList.remove("listening");$("micbtn").textContent="🎤 语音";
+    const q=$("cmdin").value.trim();
+    if(q&&!busyPhase())sendAsk();  // hands-free: final transcript auto-parses
+  };
+  recog.onerror=ev=>{if(ev.error!=="aborted"&&ev.error!=="no-speech")renderErr("语音识别失败: "+ev.error);};
+}
+function toggleMic(){
+  if(!recog)return;
+  if(listening){recog.stop();return;}
+  try{
+    listening=true;$("cmdin").value="";
+    $("micbtn").classList.add("listening");$("micbtn").textContent="⏹ 停止";
+    recog.start();
+  }catch(e){}
+}
+setupMic();
 $("cmdin").addEventListener("keydown",e=>{if(e.key==="Enter")sendAsk();});
 refreshPlaces();
 setInterval(poll,1500);poll();
@@ -838,6 +876,27 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, run_goal(x, y, yaw))
 
 
+def serve_https():
+    """Self-signed HTTPS twin on :8443. Browsers only grant microphone
+    access (Web Speech API) to secure contexts; users accept the cert
+    warning once per device."""
+    import ssl
+    cert_dir = ROOT / 'config' / 'ssl'
+    key, crt = cert_dir / 'key.pem', cert_dir / 'cert.pem'
+    if not crt.exists():
+        cert_dir.mkdir(parents=True, exist_ok=True)
+        subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+                        '-days', '3650', '-subj', '/CN=elf-robot',
+                        '-keyout', str(key), '-out', str(crt)],
+                       check=True, capture_output=True)
+    https = ThreadingHTTPServer(('0.0.0.0', 8443), Handler)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(str(crt), str(key))
+    https.socket = ctx.wrap_socket(https.socket, server_side=True)
+    print('https on https://0.0.0.0:8443 (self-signed; accept once for mic)', flush=True)
+    https.serve_forever()
+
+
 def main():
     global locator
     load_places()
@@ -845,6 +904,7 @@ def main():
     rclpy.init()
     locator = Locator()
     threading.Thread(target=rclpy.spin, args=(locator,), daemon=True).start()
+    threading.Thread(target=serve_https, daemon=True).start()
     server = ThreadingHTTPServer(('0.0.0.0', 8018), Handler)
     print('map clicker on http://0.0.0.0:8018 (Tailscale IP recommended)', flush=True)
     server.serve_forever()
