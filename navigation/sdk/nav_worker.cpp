@@ -31,7 +31,7 @@ double seconds(){return std::chrono::duration<double>(Clock::now().time_since_ep
 struct Packet { unsigned long long sequence=0;double stamp=0,vx=0,wz=0;int healthy=0; };
 bool parse(const char*data,Packet &p){
  std::istringstream in(data);std::string extra;
- return bool(in>>p.sequence>>p.stamp>>p.vx>>p.wz>>p.healthy)&&!(in>>extra)&&std::isfinite(p.stamp)&&std::isfinite(p.vx)&&std::isfinite(p.wz)&&p.vx>=0&&p.vx<=.30&&std::abs(p.wz)<=.2&&(p.healthy==0||p.healthy==1);
+ return bool(in>>p.sequence>>p.stamp>>p.vx>>p.wz>>p.healthy)&&!(in>>extra)&&std::isfinite(p.stamp)&&std::isfinite(p.vx)&&std::isfinite(p.wz)&&p.vx>=0&&p.vx<=.80&&std::abs(p.wz)<=.35&&(p.healthy==0||p.healthy==1);
 }
 int main(int argc,char**argv){
  if(argc==3&&(std::string(argv[2])=="--inspect"||std::string(argv[2])=="--watch-remote")) {

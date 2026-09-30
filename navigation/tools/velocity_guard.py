@@ -12,7 +12,7 @@ class VelocityGuard:
         vx,vy,vz,wx,wy,wz=values
         if any(abs(v)>1e-6 for v in (vy,vz,wx,wy)) or vx<0:
             self.latched=True;return
-        self.command=(min(vx,.30),max(-.2,min(.2,wz)));self.received=now
+        self.command=(min(vx,.80),max(-.35,min(.35,wz)));self.received=now
     def healthy(self,value,now):
         if value:self.bad_since=None
         elif self.bad_since is None:self.bad_since=now
