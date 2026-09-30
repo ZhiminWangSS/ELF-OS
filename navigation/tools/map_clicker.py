@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MAPDIR = ROOT / 'maps/floor_1789552084236'
 ROBOT = yaml.safe_load((ROOT / 'config/robot.yaml').read_text())
 CLEAR_RADIUS = max(np.linalg.norm(v) for v in ROBOT['footprint']) + .05
-MAX_GOAL_DIST = 15
+MAX_GOAL_DIST = 50
 PPM = 40  # rendered pixels per metre
 
 SKILL_PATH = ROOT.parent / '.zcode' / 'skills' / 'elf-nav' / 'SKILL.md'
@@ -287,12 +287,12 @@ def _run_session(x, y, yaw_deg, d):
     """One supervised hardware_test session to a single goal. Returns (ok, detail)."""
     # Include an in-place rotation allowance: stumpy health-gated rotation of
     # up to 180 deg can take 25+ s in this corridor before the walk begins.
-    goal_timeout = min(140, round(30 + d / 0.2 + 12))
-    seconds = min(175, goal_timeout + 12)
+    goal_timeout = min(350, round(30 + d / 0.2 + 12))
+    seconds = min(400, goal_timeout + 12)
     clear_costmaps_around_robot()
     cmd = ['/usr/bin/python3', str(ROOT / 'tools/hardware_test.py'), '--execute',
            '--seconds', str(seconds), '--goal-x', f'{x:.3f}', '--goal-y', f'{y:.3f}',
-           '--goal-yaw-deg', f'{yaw_deg:.1f}', '--max-distance', f'{min(15, d + 0.5):.2f}',
+           '--goal-yaw-deg', f'{yaw_deg:.1f}', '--max-distance', f'{min(MAX_GOAL_DIST, d + 0.5):.2f}',
            '--goal-timeout', str(goal_timeout)]
     # rclpy/Nav2 live behind env.bash: the server process was started from a
     # sourced shell, so pass its environment through instead of a clean one.
@@ -502,7 +502,7 @@ box-shadow:0 4px 14px rgba(220,38,38,.25)}
    <div id="hint">在地图上<b>按住拖动</b>选择目标点与到达朝向：
     起点=目标位置，拖动方向=到达后的朝向。<br><br>
     松开后自动规划路线并预览，<b>按下「开始导航」才会真正出发</b>。<br><br>
-    单段上限 15 m ｜ 遥控器随时接管 ｜ 急停可用</div>
+    单段上限 50 m ｜ 遥控器随时接管 ｜ 急停可用</div>
   </div>
   <div class="card"><div class="card-title">执行状态</div><div id="result"></div><div id="prog"></div></div>
  </aside>

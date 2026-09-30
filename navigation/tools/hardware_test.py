@@ -9,7 +9,7 @@ def main():
     p.add_argument('--goal-x',type=float);p.add_argument('--goal-y',type=float);p.add_argument('--goal-yaw-deg',type=float,default=0.)
     p.add_argument('--max-distance',type=float,default=1.);p.add_argument('--goal-timeout',type=float,default=15.)
     a=p.parse_args()
-    if not 0<a.seconds<=180:raise SystemExit('Test session duration must be 0..180 seconds')
+    if not 0<a.seconds<=400:raise SystemExit('Test session duration must be 0..400 seconds')
     requested_goal=(a.goal_x is not None or a.goal_y is not None)
     if requested_goal and (a.goal_x is None or a.goal_y is None):raise SystemExit('Provide both --goal-x and --goal-y')
     report=check();print(json.dumps(report,indent=2),flush=True)
