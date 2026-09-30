@@ -6,7 +6,7 @@ the server validates localization health, goal free-space clearance and the
 short-test distance cap, then runs tools/hardware_test.py --execute with the
 picked goal (same supervised flow as the shell workflow). No auth: only bind
 to interfaces you trust (Tailscale)."""
-import json, math, os, subprocess, threading, time
+import json, math, os, subprocess, threading, time, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import numpy as np
@@ -28,6 +28,11 @@ CLEAR_RADIUS = max(np.linalg.norm(v) for v in ROBOT['footprint']) + .05
 MAX_GOAL_DIST = 15
 PPM = 40  # rendered pixels per metre
 
+PLACES_PATH = ROOT / 'config' / 'places.yaml'
+LLM_CFG_PATH = ROOT / 'config' / 'llm.local.yaml'  # gitignored: {base_url, api_key, model}
+PLACES = {}
+LLM = {'base_url': '', 'api_key': '', 'model': ''}
+
 cfg = yaml.safe_load((MAPDIR / 'map.yaml').read_text())
 grid = np.flipud(np.array(Image.open(MAPDIR / cfg['image'])))
 clearance = distance_transform_edt(grid == 254) * cfg['resolution']
@@ -41,6 +46,140 @@ def cell_clearance(wx, wy):
     if not (0 <= cx < grid.shape[1] and 0 <= cy < grid.shape[0]):
         return -1.0
     return float(clearance[cy, cx])
+
+
+def load_places():
+    global PLACES
+    if PLACES_PATH.exists():
+        try:
+            PLACES = yaml.safe_load(PLACES_PATH.read_text()) or {}
+        except Exception:
+            PLACES = {}
+
+
+def save_places():
+    tmp = PLACES_PATH.with_suffix('.tmp')
+    tmp.write_text(yaml.safe_dump(PLACES, allow_unicode=True, sort_keys=True))
+    os.replace(tmp, PLACES_PATH)
+
+
+def place_save(name):
+    """Record the robot's CURRENT pose under a name (Method A annotation)."""
+    name = (name or '').strip()
+    if not name:
+        return {'ok': False, 'error': '地点名不能为空'}
+    s = locator.snapshot()
+    if not s['healthy'] or not s['fresh'] or not s['pose']:
+        return {'ok': False, 'error': '定位不健康，无法记录位置'}
+    if name in PLACES:
+        return {'ok': False, 'error': f'「{name}」已存在（{PLACES[name]["x"]:.2f},{PLACES[name]["y"]:.2f}），换个名字或先删除'}
+    PLACES[name] = {'x': round(s['pose'][0], 3), 'y': round(s['pose'][1], 3),
+                    'yaw': round(s['pose'][2], 1), 'aliases': [], 'note': 'web-marked'}
+    save_places()
+    return {'ok': True, 'name': name, 'pose': PLACES[name]}
+
+
+_STRIP_WORDS = ['走到', '去', '导航到', '房间', '门口', '门', '号', '室', '的', 'room', '号房']
+
+
+def _norm(text):
+    t = str(text or '').strip().lower()
+    for w in _STRIP_WORDS:
+        t = t.replace(w, '')
+    return t.replace(' ', '')
+
+
+def place_resolve(query):
+    """Query -> pose. Exact name/alias, then substring both ways."""
+    q = _norm(query)
+    if not q:
+        return {'ok': False, 'error': '请输入地点名', 'places': list(PLACES)}
+    for name, item in PLACES.items():
+        if _norm(name) == q or any(_norm(a) == q for a in item.get('aliases', [])):
+            return {'ok': True, 'name': name, 'x': item['x'], 'y': item['y'], 'yaw_deg': item['yaw']}
+    cands = [name for name in PLACES if q in _norm(name)
+             or any(q in _norm(a) for a in PLACES[name].get('aliases', []))]
+    if len(cands) == 1:
+        name = cands[0]
+        item = PLACES[name]
+        return {'ok': True, 'name': name, 'x': item['x'], 'y': item['y'], 'yaw_deg': item['yaw']}
+    if cands:
+        return {'ok': False, 'error': '匹配到多个地点，请点选：', 'candidates': cands}
+    return {'ok': False, 'error': f'没有叫「{query}」的地点', 'places': list(PLACES)}
+
+
+def load_llm_cfg():
+    """OpenAI-compatible chat endpoint. Env vars win over llm.local.yaml."""
+    if LLM_CFG_PATH.exists():
+        try:
+            LLM.update({k: str(v) for k, v in (yaml.safe_load(LLM_CFG_PATH.read_text()) or {}).items()
+                        if k in LLM})
+        except Exception:
+            pass
+    for k in LLM:
+        LLM[k] = os.environ.get('ELF_LLM_' + k.upper(), '') or LLM[k]
+    LLM['base_url'] = LLM['base_url'].rstrip('/')
+
+
+def llm_chat(system, user):
+    """One round through <base_url>/chat/completions. Returns content text."""
+    body = json.dumps({'model': LLM['model'], 'temperature': 0, 'messages': [
+        {'role': 'system', 'content': system}, {'role': 'user', 'content': user}]}).encode()
+    req = urllib.request.Request(LLM['base_url'] + '/chat/completions', data=body, headers={
+        'Content-Type': 'application/json', 'Authorization': 'Bearer ' + LLM['api_key']})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        data = json.loads(r.read())
+    return data['choices'][0]['message']['content']
+
+
+def _clip_goal(x, y, yaw):
+    x = min(max(float(x), X0 + 0.1), X0 + W_M - 0.1)
+    y = min(max(float(y), Y0 + 0.1), Y0 + H_M - 0.1)
+    return x, y, ((float(yaw) + 180) % 360) - 180 if yaw is not None else 0.0
+
+
+def ask_goal(text):
+    """Natural-language instruction -> goal pose. LLM when configured,
+    else rule-based place matching."""
+    text = (text or '').strip()
+    if not text:
+        return {'ok': False, 'error': '请输入指令'}
+    llm_ready = bool(LLM['base_url'] and LLM['api_key'] and LLM['model'])
+    if llm_ready:
+        table = '\n'.join(f"{n}: x={v['x']}, y={v['y']}, yaw={v['yaw']}"
+                          + (f", aliases={v['aliases']}" if v.get('aliases') else '')
+                          for n, v in PLACES.items()) or '(空)'
+        system = ('你是机器狗的导航指令解析器。已知地点表（名称: 坐标，yaw 单位度）：\n' + table +
+                  f'\n地图范围 x∈[{X0:.1f},{X0 + W_M:.1f}], y∈[{Y0:.1f},{Y0 + H_M:.1f}]。'
+                  '把用户指令解析为一个目标点，只输出一个 JSON 对象，不要任何其他文字：\n'
+                  '{"name":"地点名或自定义说明","x":数字,"y":数字,"yaw_deg":数字,"reply":"一句话中文说明"}\n'
+                  '优先从地点表选；指令含模糊位置描述（如"有打印机的那间"）时选最合理地点并在 reply 说明；'
+                  '指令与导航无关或无法确定目标时输出 {"error":"原因"}。')
+        try:
+            raw = llm_chat(system, text)
+            js = raw[raw.find('{'):raw.rfind('}') + 1]
+            d = json.loads(js)
+            if 'error' in d and d['error']:
+                return {'ok': False, 'error': str(d['error'])[:200]}
+            x, y, yaw = _clip_goal(d['x'], d['y'], d.get('yaw_deg', 0))
+            return {'ok': True, 'source': 'llm', 'name': str(d.get('name', ''))[:40],
+                    'x': x, 'y': y, 'yaw_deg': yaw, 'reply': str(d.get('reply', ''))[:120]}
+        except Exception as exc:
+            fallback_note = f'（大模型调用失败：{str(exc)[:80]}，退回地点名匹配）'
+        else:
+            fallback_note = ''
+    else:
+        fallback_note = ''
+    r = place_resolve(text)
+    if r.pop('places', None) is not None:
+        pass  # hint list handled client-side from /places
+    if r['ok']:
+        r['source'] = 'rule'
+    elif not llm_ready:
+        r['error'] = str(r.get('error', '')) + '（未配置大模型 API，仅支持直接输入地点名；配置见 navigation/config/llm.local.yaml）'
+    elif fallback_note:
+        r['error'] = str(r.get('error', '')) + fallback_note
+    return r
 
 
 try:
@@ -257,6 +396,13 @@ font-variant-numeric:tabular-nums;white-space:nowrap}
 .chip.warn{color:#fecaca;border-color:rgba(248,113,113,.4)}
 .chip.warn .dot{background:var(--err);box-shadow:0 0 8px var(--err)}
 #h-phase{margin-left:auto;color:#bfdbfe;border-color:rgba(56,189,248,.35)}
+#nlbar{display:flex;gap:8px;padding:10px 16px;background:rgba(13,21,32,.92);
+border-bottom:1px solid var(--line);flex:none;align-items:center;flex-wrap:wrap}
+#cmdin{flex:1;min-width:220px;max-width:560px;padding:9px 14px;border-radius:10px;
+border:1px solid var(--line);background:#0a111a;color:var(--text);font-size:14px;font-family:inherit}
+#cmdin:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(56,189,248,.15)}
+#nlbar .go{flex:none;padding:9px 18px;font-size:14px}
+#nlbar .mark{flex:none;padding:9px 14px;font-size:13px}
 #main{display:flex;flex:1;min-height:0}
 #mapwrap{flex:1;position:relative;overflow:hidden;background:#070b10}
 #map{position:absolute;left:0;top:0;transform-origin:top left}
@@ -304,6 +450,12 @@ box-shadow:0 4px 14px rgba(220,38,38,.25)}
  <span class="chip" id="h-health"><span class="dot"></span><span class="t">…</span></span>
  <span class="chip" id="h-phase">空闲</span>
 </header>
+<div id="nlbar">
+ <input id="cmdin" list="placelist" placeholder='输入指令，例如"去1705门口"或"带我去有打印机的那间"'>
+ <datalist id="placelist"></datalist>
+ <button class="primary go" onclick="sendAsk()">🧠 解析目标</button>
+ <button class="ghost mark" title="把机器狗当前位置保存为一个地点" onclick="markPlace()">📍 标记当前位置</button>
+</div>
 <div id="main">
  <div id="mapwrap">
   <img id="map" alt="map"><canvas id="cv"></canvas>
@@ -311,6 +463,7 @@ box-shadow:0 4px 14px rgba(220,38,38,.25)}
    <span><i style="background:#38bdf8"></i>机器人</span>
    <span><i style="background:#fb7185"></i>目标点</span>
    <span><i style="background:#34d399"></i>规划路径</span>
+   <span><i style="background:#f59e0b"></i>地点</span>
   </div>
  </div>
  <aside>
@@ -328,7 +481,7 @@ box-shadow:0 4px 14px rgba(220,38,38,.25)}
 const PPM=__PPM__, X0=__X0__, Y1=__Y1__, S=__SCALE__;
 const $=id=>document.getElementById(id);
 const img=$("map"), cv=$("cv"), ctx=cv.getContext("2d");
-let pose=null, phase="idle", sel=null, drag=null, plan=null, t0=0, tick=null;
+let pose=null, phase="idle", sel=null, drag=null, plan=null, t0=0, tick=null, places={};
 const W2P=(x,y)=>[(x-X0)*PPM,(Y1-y)*PPM];
 const C={robot:"#38bdf8",goal:"#fb7185",path:"#34d399"};
 const IDLE_HINT=`<div class="card-title">导航任务</div><div id="hint">在地图上<b>按住拖动</b>选择新的目标点，拖动方向=到达后的朝向。</div>`;
@@ -395,6 +548,16 @@ function drawDrag(){
   ctx.beginPath(); ctx.moveTo(drag.x,drag.y); ctx.lineTo(drag.qx,drag.qy); ctx.stroke(); ctx.setLineDash([]);
   ctx.beginPath(); ctx.arc(drag.x,drag.y,9*S,0,7); ctx.strokeStyle="rgba(251,113,133,.8)"; ctx.lineWidth=2*S; ctx.stroke();
 }
+function drawPlaces(){
+  for(const [n,p] of Object.entries(places)){
+    const q=W2P(p.x,p.y);
+    ctx.beginPath(); ctx.arc(q[0],q[1],5*S,0,7);
+    ctx.fillStyle="rgba(245,158,11,.95)"; ctx.fill();
+    ctx.lineWidth=1.5*S; ctx.strokeStyle="rgba(254,240,138,.9)"; ctx.stroke();
+    ctx.beginPath(); ctx.arc(q[0],q[1],1.8*S,0,7); ctx.fillStyle="#78350f"; ctx.fill();
+    pill(q[0],q[1]+34*S,n,"#fbbf24");
+  }
+}
 function drawGoal(t){
   const g=W2P(sel.x,sel.y);
   const r=S*(11+1.6*Math.sin(t/220)); // pulsing target rings
@@ -433,6 +596,7 @@ function draw(t){
   ctx.clearRect(0,0,cv.width,cv.height);
   if(plan)drawPlan();
   if(drag)drawDrag();
+  if(Object.keys(places).length)drawPlaces();
   if(sel)drawGoal(t);
   if(pose)drawRobot(t);
 }
@@ -441,18 +605,21 @@ function draw(t){
 function ev(e){const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*cv.width/r.width,y:(e.clientY-r.top)*cv.height/r.height};}
 cv.onmousedown=e=>{if(phase!=="idle")return;drag=ev(e);};
 cv.onmousemove=e=>{if(!drag)return;const p=ev(e);drag.qx=p.x;drag.qy=p.y;};
-cv.onmouseup=async()=>{
+cv.onmouseup=()=>{
   if(!drag)return;
   const g={x:X0+drag.x/PPM,y:Y1-drag.y/PPM,
     yaw:drag.qx!==undefined?Math.atan2(-(drag.qy-drag.y),drag.qx-drag.x)*180/Math.PI:(pose?pose[2]:0)};
-  drag=null; sel=g; phase="planning"; setPhase("规划中…");
+  drag=null; selectGoal(g);
+};
+async function selectGoal(g){
+  sel=g; phase="planning"; setPhase("规划中…");
   try{
     const r=await fetch("/preview",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({x:g.x,y:g.y,yaw_deg:g.yaw})});
     const d=await r.json();
     if(d.ok){plan=d;phase="ready";renderPanel(d);setPhase("待确认");}
     else{plan=null;phase="idle";sel=null;renderErr(d.error);setPhase("空闲");}
   }catch(err){phase="idle";sel=null;renderErr("预览请求失败: "+err);}
-};
+}
 function setPhase(t){$("h-phase").textContent=t;}
 function setChip(id,text,cls){
   const c=$(id); c.querySelector(".t").textContent=text;
@@ -517,6 +684,53 @@ async function poll(){
     }
   }catch(e){setChip("h-health","服务离线","warn");}
 }
+/* ---------- natural language & places ---------- */
+async function refreshPlaces(){
+  try{
+    const d=await(await fetch("/places")).json();
+    places=d.places||{};
+    $("placelist").innerHTML=Object.keys(places).map(n=>`<option value="${n}">`).join("");
+  }catch(e){}
+}
+async function sendAsk(){
+  const q=$("cmdin").value.trim();
+  if(!q)return;
+  if(phase!=="idle"){renderErr("当前有任务，请等结束后再发起");return;}
+  phase="parsing"; setPhase("解析中…");
+  try{
+    const r=await fetch("/ask",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:q})});
+    const d=await r.json();
+    phase="idle";
+    if(d.ok){
+      $("cmdin").value="";
+      $("result").innerHTML=`<span class="ok">🧠 ${d.source==="llm"?"大模型":"地点表"}解析：${d.name||`(${d.x.toFixed(2)}, ${d.y.toFixed(2)})`}${d.reply?` —— ${d.reply}`:""}</span>`;
+      selectGoal({x:d.x,y:d.y,yaw:d.yaw_deg});
+    }else if(d.candidates){
+      $("result").innerHTML=`<span class="err">${d.error}</span><br>`+
+        d.candidates.map(c=>`<button class="ghost" style="margin:4px;padding:6px 12px;font-size:13px" onclick="pickPlace('${c}')">${c}</button>`).join("");
+      setPhase("空闲");
+    }else{
+      const names=Object.keys(places);
+      renderErr(d.error+(names.length?`　可用地点：${names.join("、")}`:"（还没有地点，先点「标记当前位置」添加）"));
+      setPhase("空闲");
+    }
+  }catch(err){phase="idle";setPhase("空闲");renderErr("解析请求失败: "+err);}
+}
+function pickPlace(n){const p=places[n]; if(p) selectGoal({x:p.x,y:p.y,yaw:p.yaw});}
+async function markPlace(){
+  const name=prompt("给当前位置起个名字（如：1705门口）：");
+  if(!name)return;
+  try{
+    const r=await fetch("/place/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name})});
+    const d=await r.json();
+    if(d.ok){
+      $("result").innerHTML=`<span class="ok">📍 已标记「${d.name}」(${d.pose.x}, ${d.pose.y}, ${d.pose.yaw}°)</span>`;
+      refreshPlaces();
+    }else renderErr(d.error);
+  }catch(err){renderErr("标记失败: "+err);}
+}
+$("cmdin").addEventListener("keydown",e=>{if(e.key==="Enter")sendAsk();});
+refreshPlaces();
 setInterval(poll,1500);poll();
 </script></body></html>
 """
@@ -538,6 +752,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith('/map.png'):
             self._send(200, render_map_png(), 'image/png')
+        elif self.path == '/places':
+            self._send(200, {'places': {k: {'x': v['x'], 'y': v['y'], 'yaw': v['yaw']}
+                                        for k, v in PLACES.items()}})
         elif self.path == '/state':
             s = locator.snapshot()
             self._send(200, {'pose': [round(v, 3) for v in s['pose']] if s['pose'] else None,
@@ -547,7 +764,29 @@ class Handler(BaseHTTPRequestHandler):
                         .replace('__Y1__', f'{Y0 + H_M:.3f}').replace('__SCALE__', str(PPM / 20)))
             self._send(200, page.encode(), 'text/html')
 
+    def _json_body(self):
+        n = int(self.headers.get('Content-Length', 0))
+        try:
+            return json.loads(self.rfile.read(n))
+        except Exception:
+            return None
+
     def do_POST(self):
+        if self.path == '/place/save':
+            req = self._json_body()
+            if req is None:
+                return self._send(400, {'ok': False, 'error': '请求格式错误'})
+            return self._send(200, place_save(req.get('name', '')))
+        if self.path == '/place/resolve':
+            req = self._json_body()
+            if req is None:
+                return self._send(400, {'ok': False, 'error': '请求格式错误'})
+            return self._send(200, place_resolve(req.get('query', '')))
+        if self.path == '/ask':
+            req = self._json_body()
+            if req is None:
+                return self._send(400, {'ok': False, 'error': '请求格式错误'})
+            return self._send(200, ask_goal(req.get('text', '')))
         if self.path == '/cancel':
             return self._send(200, cancel_nav())
         if self.path not in ('/goal', '/preview'):
@@ -570,6 +809,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     global locator
+    load_places()
+    load_llm_cfg()
     rclpy.init()
     locator = Locator()
     threading.Thread(target=rclpy.spin, args=(locator,), daemon=True).start()
