@@ -26,7 +26,7 @@ MAPDIR = ROOT / 'maps/floor_1789552084236'
 ROBOT = yaml.safe_load((ROOT / 'config/robot.yaml').read_text())
 CLEAR_RADIUS = max(np.linalg.norm(v) for v in ROBOT['footprint']) + .05
 MAX_GOAL_DIST = 15
-PPM = 20  # rendered pixels per metre
+PPM = 40  # rendered pixels per metre
 
 cfg = yaml.safe_load((MAPDIR / 'map.yaml').read_text())
 grid = np.flipud(np.array(Image.open(MAPDIR / cfg['image'])))
@@ -43,27 +43,33 @@ def cell_clearance(wx, wy):
     return float(clearance[cy, cx])
 
 
+try:
+    FONT = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf', 13)
+except Exception:
+    FONT = None
+
+
 def render_map_png():
-    lut = np.zeros(256, dtype=np.uint8)
-    lut[254] = 235   # free -> light
-    lut[205] = 120   # unknown -> gray
-    lut[0] = 10      # occupied -> near black
+    # Dark "blueprint" palette: deep slate free space, bright walls, subtle grid.
+    lut = np.full((256, 3), (12, 17, 24), dtype=np.uint8)   # unknown -> darkest
+    lut[254] = (37, 53, 72)    # free -> slate, clearly lighter than unknown
+    lut[0] = (223, 233, 242)   # occupied -> bright walls
     img = Image.fromarray(lut[grid[::-1]]).convert('RGB')
-    img = img.resize((int(W_M * PPM), int(H_M * PPM)), Image.NEAREST)
+    img = img.resize((int(W_M * PPM), int(H_M * PPM)), Image.LANCZOS)
     d = ImageDraw.Draw(img, 'RGBA')
     for meter in range(0, int(max(W_M, H_M)) + 1, 2):
         px = int((meter - X0) * PPM) if X0 <= meter <= X0 + W_M else -1
         py = int((Y0 + H_M - meter) * PPM) if Y0 <= meter <= Y0 + H_M else -1
         major = meter % 10 == 0
         if px >= 0:
-            d.line([(px, 0), (px, img.height)], fill=(0, 116, 217, 200 if major else 70), width=2 if major else 1)
+            d.line([(px, 0), (px, img.height)], fill=(56, 189, 248, 60 if major else 22), width=2 if major else 1)
         if py >= 0:
-            d.line([(0, py), (img.width, py)], fill=(0, 116, 217, 200 if major else 70), width=2 if major else 1)
+            d.line([(0, py), (img.width, py)], fill=(56, 189, 248, 60 if major else 22), width=2 if major else 1)
         if major:
             if px >= 0:
-                d.text((px + 4, 6), str(meter), fill=(0, 90, 180, 255))
+                d.text((px + 5, 7), str(meter), font=FONT, fill=(125, 211, 252, 220))
             if py >= 0:
-                d.text((6, py + 4), str(meter), fill=(0, 90, 180, 255))
+                d.text((7, py + 5), str(meter), font=FONT, fill=(125, 211, 252, 220))
     buf = __import__('io').BytesIO()
     img.save(buf, 'PNG')
     return buf.getvalue()
@@ -225,56 +231,107 @@ def run_goal(x, y, yaw_deg):
                 'distance_m': round(d, 2), 'duration_s': round(time.monotonic() - t0, 1)}
 
 
-PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>ELF 地图选点导航</title>
+PAGE = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ELF 地图选点导航</title>
 <style>
-body{font-family:"PingFang SC","Microsoft YaHei",sans-serif;background:#0e1216;color:#d8dee6;margin:0;display:flex;flex-direction:column;height:100vh}
-header{display:flex;align-items:center;gap:10px;padding:8px 14px;background:#141b22;border-bottom:1px solid #26303a}
-header h1{font-size:16px;margin:0;color:#8fb4d9}
-.chip{padding:3px 10px;border-radius:6px;background:#202a34;font-size:13px}
-.chip.ok{background:#23402a;color:#9fe0ae}.chip.warn{background:#4a2a2a;color:#ff9c9c}
+:root{--bg:#0b0f14;--panel:#111926;--line:#1e2a38;--text:#e6edf3;--muted:#8b98a5;
+--accent:#38bdf8;--ok:#34d399;--warn:#fbbf24;--err:#f87171;--goal:#fb7185}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{font:14px/1.5 -apple-system,"PingFang SC","Microsoft YaHei","Segoe UI",system-ui,sans-serif;
+background:radial-gradient(1100px 700px at 75% -10%,#12202e 0%,var(--bg) 55%);
+color:var(--text);margin:0;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+header{display:flex;align-items:center;gap:10px;padding:10px 16px;background:rgba(17,25,38,.9);
+border-bottom:1px solid var(--line);flex:none;flex-wrap:wrap}
+.logo{width:28px;height:28px;border-radius:9px;background:linear-gradient(135deg,#38bdf8,#1d4ed8);
+display:flex;align-items:center;justify-content:center;font-size:15px;flex:none;
+color:#fff;font-weight:800;font-family:inherit}
+h1{font-size:15px;margin:0;font-weight:650;letter-spacing:.3px;white-space:nowrap}
+h1 small{color:var(--muted);font-weight:400;margin-left:8px;font-size:11.5px}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:4px 12px;border-radius:999px;
+background:#0c141d;border:1px solid var(--line);font-size:12.5px;color:var(--muted);
+font-variant-numeric:tabular-nums;white-space:nowrap}
+.chip .dot{width:7px;height:7px;border-radius:50%;background:#5b6b7a;flex:none}
+.chip.ok{color:#a7f3d0;border-color:rgba(52,211,153,.35)}
+.chip.ok .dot{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.chip.warn{color:#fecaca;border-color:rgba(248,113,113,.4)}
+.chip.warn .dot{background:var(--err);box-shadow:0 0 8px var(--err)}
+#h-phase{margin-left:auto;color:#bfdbfe;border-color:rgba(56,189,248,.35)}
 #main{display:flex;flex:1;min-height:0}
-#mapwrap{flex:1;position:relative;overflow:hidden;background:#000}
+#mapwrap{flex:1;position:relative;overflow:hidden;background:#070b10}
 #map{position:absolute;left:0;top:0;transform-origin:top left}
 #cv{position:absolute;left:0;top:0;cursor:crosshair}
-aside{width:320px;background:#141b22;border-left:1px solid #26303a;padding:14px;display:flex;flex-direction:column;gap:10px;overflow-y:auto}
-aside h2{font-size:14px;margin:0;color:#8fb4d9}
-table{width:100%%;border-collapse:collapse;font-size:13px}
-td{padding:4px 6px;border-bottom:1px solid #1e2833}
-td:first-child{color:#7d8b99}
-button{padding:12px;border:none;border-radius:8px;font-size:16px;cursor:pointer;background:#2b5f2f;color:#e6ffe6}
-button:hover{background:#357438}
-button.gray{background:#33414e;color:#c6d2dd}
-button.gray:hover{background:#3d4e5d}
-button.red{background:#7a2222;color:#ffd6d6}
-button.red:hover{background:#963030}
+#legend{position:absolute;left:12px;bottom:12px;display:flex;gap:8px;pointer-events:none;flex-wrap:wrap}
+#legend span{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;
+background:rgba(10,15,22,.78);border:1px solid var(--line);font-size:12px;color:var(--muted);backdrop-filter:blur(4px)}
+#legend i{width:9px;height:9px;border-radius:3px;flex:none}
+aside{width:330px;flex:none;background:var(--panel);border-left:1px solid var(--line);
+padding:14px;display:flex;flex-direction:column;gap:12px;overflow-y:auto}
+aside::-webkit-scrollbar{width:8px}
+aside::-webkit-scrollbar-thumb{background:#223042;border-radius:4px}
+.card{background:#0d1520;border:1px solid var(--line);border-radius:12px;padding:14px}
+.card-title{font-size:12px;font-weight:650;color:var(--accent);letter-spacing:1px;margin-bottom:10px}
+.row{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px dashed #1a2532;font-size:13px}
+.row:last-of-type{border-bottom:none}
+.row span{color:var(--muted)}
+.row b{font-weight:600;font-variant-numeric:tabular-nums;text-align:right}
+#result{font-size:13px;line-height:1.7;white-space:pre-wrap}
+#result .ok{color:#a7f3d0}#result .err{color:#fca5a5}
+#prog{display:none;font-size:13.5px;color:#fde68a;align-items:center;gap:8px}
+#prog::before{content:"";width:12px;height:12px;border:2px solid rgba(251,191,36,.35);
+border-top-color:#fbbf24;border-radius:50%;animation:spin .9s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+#hint{font-size:13px;color:var(--muted);line-height:1.9}
+#hint b{color:#cfe3f5}
+.actions{display:flex;gap:8px;margin-top:14px}
+button{border:none;border-radius:10px;font-size:14.5px;cursor:pointer;padding:11px 14px;
+transition:transform .06s,filter .15s;font-family:inherit}
+button:active{transform:scale(.97)}
 button:disabled{opacity:.4;cursor:default}
-#result{font-size:13px;line-height:1.6;white-space:pre-wrap}
-.ok{color:#9fe0ae}.err{color:#ff9c9c}
-#hint{font-size:12px;color:#7d8b99;line-height:1.7}
+.primary{flex:2;background:linear-gradient(135deg,#0d9f6e,#057a55);color:#ecfdf5;font-weight:600;
+box-shadow:0 4px 14px rgba(13,159,110,.25)}
+.primary:hover{filter:brightness(1.12)}
+.ghost{flex:1;background:#16202e;color:#aebccd;border:1px solid var(--line)}
+.ghost:hover{background:#1b2735}
+.danger{width:100%;background:linear-gradient(135deg,#dc2626,#991b1b);color:#fee2e2;font-weight:600;
+box-shadow:0 4px 14px rgba(220,38,38,.25)}
+.danger:hover{filter:brightness(1.12)}
 </style></head><body>
-<header><h1>ELF 地图选点导航</h1>
- <span class="chip" id="h-pose">位置获取中…</span>
- <span class="chip" id="h-health">…</span>
+<header>
+ <div class="logo">E</div>
+ <h1>ELF 地图选点导航<small>SUPERVISED NAV</small></h1>
+ <span class="chip" id="h-pose"><span class="dot"></span><span class="t">位置获取中…</span></span>
+ <span class="chip" id="h-health"><span class="dot"></span><span class="t">…</span></span>
  <span class="chip" id="h-phase">空闲</span>
 </header>
 <div id="main">
- <div id="mapwrap"><img id="map"><canvas id="cv"></canvas></div>
+ <div id="mapwrap">
+  <img id="map" alt="map"><canvas id="cv"></canvas>
+  <div id="legend">
+   <span><i style="background:#38bdf8"></i>机器人</span>
+   <span><i style="background:#fb7185"></i>目标点</span>
+   <span><i style="background:#34d399"></i>规划路径</span>
+  </div>
+ </div>
  <aside>
-  <h2>导航任务</h2>
-  <div id="panel"><div id="hint">在地图上<b>按住拖动</b>选择目标点与到达朝向：
-起点=目标位置，拖动方向=到达后的朝向。<br><br>
-松开后系统自动规划路线并显示预览，<b>按下「开始导航」才会真正出发</b>。<br><br>
-单段上限 15 m ｜ 遥控器随时接管 ｜ 急停可用</div></div>
-  <div id="result"></div>
-  <div id="prog" style="display:none;font-size:14px;color:#ffd27c"></div>
+  <div class="card" id="panel">
+   <div class="card-title">导航任务</div>
+   <div id="hint">在地图上<b>按住拖动</b>选择目标点与到达朝向：
+    起点=目标位置，拖动方向=到达后的朝向。<br><br>
+    松开后自动规划路线并预览，<b>按下「开始导航」才会真正出发</b>。<br><br>
+    单段上限 15 m ｜ 遥控器随时接管 ｜ 急停可用</div>
+  </div>
+  <div class="card"><div class="card-title">执行状态</div><div id="result"></div><div id="prog"></div></div>
  </aside>
 </div>
 <script>
-const PPM=%(PPM)d, X0=%(X0).3f, Y1=%(Y1).3f;
+const PPM=__PPM__, X0=__X0__, Y1=__Y1__, S=__SCALE__;
 const $=id=>document.getElementById(id);
 const img=$("map"), cv=$("cv"), ctx=cv.getContext("2d");
 let pose=null, phase="idle", sel=null, drag=null, plan=null, t0=0, tick=null;
 const W2P=(x,y)=>[(x-X0)*PPM,(Y1-y)*PPM];
+const C={robot:"#38bdf8",goal:"#fb7185",path:"#34d399"};
+const IDLE_HINT=`<div class="card-title">导航任务</div><div id="hint">在地图上<b>按住拖动</b>选择新的目标点，拖动方向=到达后的朝向。</div>`;
 
 function fit(){
   const wrap=$("mapwrap");
@@ -282,37 +339,105 @@ function fit(){
   img.style.width=img.naturalWidth*scale+"px"; img.style.height=img.naturalHeight*scale+"px";
   cv.width=img.naturalWidth; cv.height=img.naturalHeight;
   cv.style.width=img.style.width; cv.style.height=img.style.height;
-  draw();
 }
 img.onload=fit; window.onresize=fit; img.src="/map.png?"+Date.now();
 
-function draw(){
-  ctx.clearRect(0,0,cv.width,cv.height);
-  if(plan){ // planned route
-    ctx.strokeStyle="#3fd15f"; ctx.lineWidth=3; ctx.setLineDash([]);
-    ctx.beginPath();
-    plan.path.forEach((p,i)=>{const a=W2P(p[0],p[1]); i?ctx.lineTo(a[0],a[1]):ctx.moveTo(a[0],a[1]);});
-    ctx.stroke();
-    const s=W2P(plan.start[0],plan.start[1]);
-    ctx.strokeStyle="#3fd15f"; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(s[0],s[1],8,0,7); ctx.stroke();
-    ctx.fillStyle="#9fe0ae"; ctx.font="12px sans-serif"; ctx.fillText("出发点",s[0]+10,s[1]-8);
-  }
-  if(sel){
-    const g=W2P(sel.x,sel.y);
-    ctx.strokeStyle="#f44336"; ctx.lineWidth=3; ctx.setLineDash([]);
-    ctx.beginPath(); ctx.arc(g[0],g[1],10,0,7); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(g[0],g[1]);
-    ctx.lineTo(g[0]+30*Math.cos(-sel.yaw*Math.PI/180),g[1]+30*Math.sin(-sel.yaw*Math.PI/180)); ctx.stroke();
-    ctx.fillStyle="#ff9c9c"; ctx.font="12px sans-serif"; ctx.fillText("目的地",g[0]+12,g[1]-10);
-  }
-  if(pose){
-    const p=W2P(pose[0],pose[1]);
-    ctx.fillStyle="#2196f3"; ctx.beginPath(); ctx.arc(p[0],p[1],8,0,7); ctx.fill();
-    ctx.strokeStyle="#2196f3"; ctx.lineWidth=3; ctx.setLineDash([]);
-    ctx.beginPath(); ctx.moveTo(p[0],p[1]);
-    ctx.lineTo(p[0]+24*Math.cos(-pose[2]*Math.PI/180),p[1]+24*Math.sin(-pose[2]*Math.PI/180)); ctx.stroke();
-  }
+/* ---------- drawing helpers (S keeps marker sizes proportional to map PPM) ---------- */
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);
+ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath()}
+function pill(x,y,text,color){ // rounded label centred above (x,y), clamped to canvas
+  ctx.font=`600 ${12.5*S}px -apple-system,'PingFang SC',sans-serif`;
+  const w=ctx.measureText(text).width+18*S;
+  x=Math.max(w/2+2,Math.min(cv.width-w/2-2,x));
+  ctx.fillStyle="rgba(7,12,18,.88)"; rr(x-w/2,y-26*S,w,22*S,7*S); ctx.fill();
+  ctx.strokeStyle=color; ctx.globalAlpha=.55; ctx.lineWidth=1; ctx.stroke(); ctx.globalAlpha=1;
+  ctx.fillStyle=color; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(text,x,y-15*S);
+  ctx.textAlign="start"; ctx.textBaseline="alphabetic";
 }
+function arrowHead(x,y,ang,size,color){
+  ctx.beginPath(); ctx.moveTo(x,y);
+  ctx.lineTo(x-size*Math.cos(ang-.42),y-size*Math.sin(ang-.42));
+  ctx.lineTo(x-size*Math.cos(ang+.42),y-size*Math.sin(ang+.42));
+  ctx.closePath(); ctx.fillStyle=color; ctx.fill();
+}
+function headingRay(x,y,yawDeg,len,color){
+  const a=-yawDeg*Math.PI/180, ex=x+len*Math.cos(a), ey=y+len*Math.sin(a);
+  ctx.setLineDash([6*S,5*S]); ctx.strokeStyle=color; ctx.lineWidth=2*S; ctx.globalAlpha=.85;
+  ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(ex,ey); ctx.stroke();
+  ctx.setLineDash([]); ctx.globalAlpha=1; arrowHead(ex,ey,a,9*S,color);
+}
+
+function drawPlan(){
+  const pts=plan.path.map(p=>W2P(p[0],p[1]));
+  ctx.lineJoin="round"; ctx.lineCap="round";
+  ctx.strokeStyle="rgba(52,211,153,.16)"; ctx.lineWidth=10*S;
+  ctx.beginPath(); pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])); ctx.stroke();
+  ctx.strokeStyle=C.path; ctx.lineWidth=3*S;
+  ctx.beginPath(); pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])); ctx.stroke();
+  let acc=0,last=null; // direction chevrons along the route
+  for(const q of pts){
+    if(last){acc+=Math.hypot(q[0]-last[0],q[1]-last[1]);
+      if(acc>52*S){const a=Math.atan2(q[1]-last[1],q[0]-last[0]);
+        ctx.strokeStyle="rgba(6,78,59,.95)"; ctx.lineWidth=2.5*S;
+        ctx.beginPath();
+        ctx.moveTo(q[0]-8*S*Math.cos(a-.5),q[1]-8*S*Math.sin(a-.5)); ctx.lineTo(q[0],q[1]);
+        ctx.lineTo(q[0]-8*S*Math.cos(a+.5),q[1]-8*S*Math.sin(a+.5)); ctx.stroke(); acc=0;}}
+    last=q;
+  }
+  const s=W2P(plan.start[0],plan.start[1]);
+  ctx.beginPath(); ctx.arc(s[0],s[1],7*S,0,7); ctx.strokeStyle=C.path; ctx.lineWidth=2.5*S; ctx.stroke();
+  ctx.beginPath(); ctx.arc(s[0],s[1],2.6*S,0,7); ctx.fillStyle=C.path; ctx.fill();
+  pill(s[0],s[1]-11*S,"起点","#6ee7b7");
+}
+function drawDrag(){
+  if(!drag||drag.qx===undefined)return;
+  ctx.setLineDash([5*S,5*S]); ctx.strokeStyle="rgba(251,113,133,.75)"; ctx.lineWidth=2*S;
+  ctx.beginPath(); ctx.moveTo(drag.x,drag.y); ctx.lineTo(drag.qx,drag.qy); ctx.stroke(); ctx.setLineDash([]);
+  ctx.beginPath(); ctx.arc(drag.x,drag.y,9*S,0,7); ctx.strokeStyle="rgba(251,113,133,.8)"; ctx.lineWidth=2*S; ctx.stroke();
+}
+function drawGoal(t){
+  const g=W2P(sel.x,sel.y);
+  const r=S*(11+1.6*Math.sin(t/220)); // pulsing target rings
+  ctx.strokeStyle=C.goal; ctx.lineWidth=2*S;
+  ctx.globalAlpha=.9; ctx.beginPath(); ctx.arc(g[0],g[1],r,0,7); ctx.stroke();
+  ctx.globalAlpha=.3; ctx.beginPath(); ctx.arc(g[0],g[1],r+7*S,0,7); ctx.stroke(); ctx.globalAlpha=1;
+  headingRay(g[0],g[1],sel.yaw,42*S,C.goal);
+  ctx.save(); ctx.shadowColor="rgba(251,113,133,.8)"; ctx.shadowBlur=12*S; // map pin
+  ctx.beginPath(); ctx.moveTo(g[0],g[1]-3*S);
+  ctx.quadraticCurveTo(g[0]+10*S,g[1]-16*S,g[0]+10*S,g[1]-23*S);
+  ctx.arc(g[0],g[1]-24*S,10*S,0,Math.PI,false);
+  ctx.quadraticCurveTo(g[0]-10*S,g[1]-16*S,g[0],g[1]-3*S);
+  ctx.closePath();
+  const pg=ctx.createLinearGradient(g[0]-10*S,g[1]-34*S,g[0]+10*S,g[1]);
+  pg.addColorStop(0,"#fda4af"); pg.addColorStop(1,"#e11d48");
+  ctx.fillStyle=pg; ctx.fill(); ctx.shadowBlur=0;
+  ctx.strokeStyle="rgba(255,228,230,.85)"; ctx.lineWidth=1.2*S; ctx.stroke();
+  ctx.beginPath(); ctx.arc(g[0],g[1]-24*S,3.6*S,0,7); ctx.fillStyle="#fff"; ctx.fill();
+  ctx.restore();
+  pill(g[0],g[1]-37*S,"目的地",C.goal);
+}
+function drawRobot(t){
+  const p=W2P(pose[0],pose[1]), a=-pose[2]*Math.PI/180;
+  ctx.beginPath(); ctx.arc(p[0],p[1],S*(17+2.2*Math.sin(t/280)),0,7);
+  ctx.strokeStyle="rgba(56,189,248,.4)"; ctx.lineWidth=2*S; ctx.stroke();
+  ctx.save(); ctx.translate(p[0],p[1]); ctx.rotate(a);
+  ctx.shadowColor="rgba(56,189,248,.85)"; ctx.shadowBlur=13*S;
+  const g=ctx.createLinearGradient(-10*S,0,15*S,0); g.addColorStop(0,"#0ea5e9"); g.addColorStop(1,"#7dd3fc");
+  ctx.beginPath(); ctx.moveTo(15*S,0); ctx.lineTo(-10*S,10*S); ctx.lineTo(-5*S,0); ctx.lineTo(-10*S,-10*S); ctx.closePath();
+  ctx.fillStyle=g; ctx.fill(); ctx.shadowBlur=0;
+  ctx.strokeStyle="rgba(230,247,255,.9)"; ctx.lineWidth=1.4*S; ctx.stroke();
+  ctx.restore();
+  pill(p[0],p[1]-15*S,"机器人",C.robot);
+}
+function draw(t){
+  ctx.clearRect(0,0,cv.width,cv.height);
+  if(plan)drawPlan();
+  if(drag)drawDrag();
+  if(sel)drawGoal(t);
+  if(pose)drawRobot(t);
+}
+(function loop(){draw(performance.now());requestAnimationFrame(loop)})();
+
 function ev(e){const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*cv.width/r.width,y:(e.clientY-r.top)*cv.height/r.height};}
 cv.onmousedown=e=>{if(phase!=="idle")return;drag=ev(e);};
 cv.onmousemove=e=>{if(!drag)return;const p=ev(e);drag.qx=p.x;drag.qy=p.y;};
@@ -320,37 +445,42 @@ cv.onmouseup=async()=>{
   if(!drag)return;
   const g={x:X0+drag.x/PPM,y:Y1-drag.y/PPM,
     yaw:drag.qx!==undefined?Math.atan2(-(drag.qy-drag.y),drag.qx-drag.x)*180/Math.PI:(pose?pose[2]:0)};
-  drag=null; sel=g; phase="planning"; setPhase("规划中…"); draw();
+  drag=null; sel=g; phase="planning"; setPhase("规划中…");
   try{
     const r=await fetch("/preview",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({x:g.x,y:g.y,yaw_deg:g.yaw})});
     const d=await r.json();
     if(d.ok){plan=d;phase="ready";renderPanel(d);setPhase("待确认");}
-    else{plan=null;phase="idle";sel=null;draw();renderErr(d.error);setPhase("空闲");}
-  }catch(err){phase="idle";sel=null;draw();renderErr("预览请求失败: "+err);}
+    else{plan=null;phase="idle";sel=null;renderErr(d.error);setPhase("空闲");}
+  }catch(err){phase="idle";sel=null;renderErr("预览请求失败: "+err);}
 };
 function setPhase(t){$("h-phase").textContent=t;}
+function setChip(id,text,cls){
+  const c=$(id); c.querySelector(".t").textContent=text;
+  c.className="chip"+(cls?" "+cls:"");
+}
 function renderPanel(d){
-  $("panel").innerHTML=`<table>
-   <tr><td>出发点</td><td>(${d.start[0].toFixed(2)}, ${d.start[1].toFixed(2)}) 朝向 ${d.start[2].toFixed(0)}°</td></tr>
-   <tr><td>目的地</td><td>(${d.goal[0].toFixed(2)}, ${d.goal[1].toFixed(2)}) 朝向 ${d.goal[2].toFixed(0)}°</td></tr>
-   <tr><td>直线距离</td><td>${d.distance_m.toFixed(2)} m</td></tr>
-   <tr><td>规划路径</td><td>${d.path_len_m.toFixed(2)} m（${d.path.length} 个路径点）</td></tr>
-   <tr><td>预计用时</td><td>约 ${d.est_s} s</td></tr></table>
-   <div style="display:flex;gap:8px;margin-top:12px">
-   <button style="flex:2" onclick="startNav()">🚀 开始导航</button>
-   <button class="gray" style="flex:1" onclick="resetSel()">取消</button></div>`;
+  $("panel").innerHTML=`<div class="card-title">路线预览</div>
+   <div class="row"><span>起点</span><b>(${d.start[0].toFixed(2)}, ${d.start[1].toFixed(2)}) · ${d.start[2].toFixed(0)}°</b></div>
+   <div class="row"><span>目的地</span><b>(${d.goal[0].toFixed(2)}, ${d.goal[1].toFixed(2)}) · ${d.goal[2].toFixed(0)}°</b></div>
+   <div class="row"><span>直线距离</span><b>${d.distance_m.toFixed(2)} m</b></div>
+   <div class="row"><span>路径长度</span><b>${d.path_len_m.toFixed(2)} m · ${d.path.length} 点</b></div>
+   <div class="row"><span>预计用时</span><b>约 ${d.est_s} s</b></div>
+   <div class="actions">
+   <button class="primary" onclick="startNav()">🚀 开始导航</button>
+   <button class="ghost" onclick="resetSel()">取消</button></div>`;
 }
 function renderErr(msg){$("result").innerHTML=`<span class="err">❌ ${msg}</span>`;}
-function resetSel(){sel=null;plan=null;phase="idle";draw();$("panel").innerHTML=$("panel").dataset.idle||$("panel").innerHTML;setPhase("空闲");}
+function resetSel(){sel=null;plan=null;phase="idle";draw(performance.now());$("panel").innerHTML=IDLE_HINT;setPhase("空闲");}
 async function startNav(){
   if(phase!=="ready"||!sel)return;
   phase="nav";setPhase("导航中");
-  $("panel").innerHTML=`<table><tr><td>目的地</td><td>(${plan.goal[0].toFixed(2)}, ${plan.goal[1].toFixed(2)})</td></tr>
-   <tr><td>规划路径</td><td>${plan.path_len_m.toFixed(2)} m</td></tr></table>
-   <button class="red" style="width:100%%;margin-top:12px" onclick="stopNav()">⛔ 停止导航</button>`;
-  $("result").innerHTML=""; $("prog").style.display="block";
+  $("panel").innerHTML=`<div class="card-title">导航执行</div>
+   <div class="row"><span>目的地</span><b>(${plan.goal[0].toFixed(2)}, ${plan.goal[1].toFixed(2)})</b></div>
+   <div class="row"><span>路径长度</span><b>${plan.path_len_m.toFixed(2)} m</b></div>
+   <button class="danger" style="margin-top:14px" onclick="stopNav()">⛔ 停止导航</button>`;
+  $("result").innerHTML=""; $("prog").style.display="flex";
   t0=Date.now();
-  tick=setInterval(()=>{$("prog").textContent="⏱ 已用时 "+Math.round((Date.now()-t0)/1000)+" s";},500);
+  tick=setInterval(()=>{$("prog").textContent="已用时 "+Math.round((Date.now()-t0)/1000)+" s";},500);
   try{
     const r=await fetch("/goal",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({x:sel.x,y:sel.y,yaw_deg:sel.yaw})});
@@ -358,16 +488,16 @@ async function startNav(){
     clearInterval(tick);$("prog").style.display="none";
     const dt=((Date.now()-t0)/1000).toFixed(1);
     if(d.ok){
-      $("result").innerHTML=`<span class="ok">✅ 导航成功到达</span>\n用时 ${dt} s（本次实际 ${d.duration_s} s）\n距离 ${d.distance_m} m`;
+      $("result").innerHTML=`<span class="ok">✅ 导航成功到达</span>\\n用时 ${dt} s（本次实际 ${d.duration_s} s）\\n距离 ${d.distance_m} m`;
       setPhase("完成");
     }else{
-      $("result").innerHTML=`<span class="err">❌ 导航失败</span>\n原因：${d.error||"未知"}\n用时 ${dt} s ｜ 距离 ${(d.distance_m===undefined?"-":d.distance_m)} m`;
+      $("result").innerHTML=`<span class="err">❌ 导航失败</span>\\n原因：${d.error||"未知"}\\n用时 ${dt} s ｜ 距离 ${(d.distance_m===undefined?"-":d.distance_m)} m`;
       setPhase("失败");
     }
   }catch(err){clearInterval(tick);$("prog").style.display="none";renderErr("导航请求异常: "+err);setPhase("异常");}
-  plan=null;draw();
-  setTimeout(()=>{if(phase==="完成"||phase==="失败"||phase==="异常"){phase="idle";sel=null;draw();
-    $("panel").innerHTML='<div id="hint">在地图上<b>按住拖动</b>选择新的目标点</div>';}},1500);
+  plan=null;
+  setTimeout(()=>{if(phase==="完成"||phase==="失败"||phase==="异常"){phase="idle";sel=null;
+    $("panel").innerHTML=IDLE_HINT;}},1500);
 }
 async function stopNav(){
   try{await fetch("/cancel",{method:"POST"});$("result").innerHTML='<span class="err">⛔ 已请求停止，会话收尾中…</span>';}
@@ -377,17 +507,15 @@ async function poll(){
   try{
     const d=await(await fetch("/state")).json();
     pose=d.pose;
-    $("h-pose").textContent=pose?`(${pose[0].toFixed(2)}, ${pose[1].toFixed(2)}) ${pose[2].toFixed(0)}°`:"位置未知";
-    $("h-health").textContent=d.healthy?(d.fresh?"定位健康":"定位过期"):"定位不健康";
-    $("h-health").className="chip "+(d.healthy?"ok":"warn");
+    setChip("h-pose",pose?`(${pose[0].toFixed(2)}, ${pose[1].toFixed(2)}) ${pose[2].toFixed(0)}°`:"位置未知");
+    setChip("h-health",d.healthy?(d.fresh?"定位健康":"定位过期"):"定位不健康",d.healthy?"ok":"warn");
     if(phase==="nav"&&!d.busy&&t0&&Date.now()-t0>6000){
       clearInterval(tick);$("prog").style.display="none";
       $("result").innerHTML='<span class="ok">导航会话已结束</span>';
-      phase="idle";sel=null;plan=null;draw();
-      $("panel").innerHTML='<div id="hint">在地图上<b>按住拖动</b>选择新的目标点</div>';
+      phase="idle";sel=null;plan=null;
+      $("panel").innerHTML=IDLE_HINT;
     }
-    draw();
-  }catch(e){$("h-health").textContent="服务离线";$("h-health").className="chip warn";}
+  }catch(e){setChip("h-health","服务离线","warn");}
 }
 setInterval(poll,1500);poll();
 </script></body></html>
@@ -415,7 +543,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {'pose': [round(v, 3) for v in s['pose']] if s['pose'] else None,
                              'healthy': s['healthy'], 'fresh': s['fresh'], 'busy': busy['active']})
         else:
-            self._send(200, (PAGE % {'PPM': PPM, 'X0': X0, 'Y1': Y0 + H_M, 'H_M': H_M}).encode(), 'text/html')
+            page = (PAGE.replace('__PPM__', str(PPM)).replace('__X0__', f'{X0:.3f}')
+                        .replace('__Y1__', f'{Y0 + H_M:.3f}').replace('__SCALE__', str(PPM / 20)))
+            self._send(200, page.encode(), 'text/html')
 
     def do_POST(self):
         if self.path == '/cancel':
