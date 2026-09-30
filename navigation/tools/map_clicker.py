@@ -629,7 +629,8 @@ function draw(t){
 (function loop(){draw(performance.now());requestAnimationFrame(loop)})();
 
 function ev(e){const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*cv.width/r.width,y:(e.clientY-r.top)*cv.height/r.height};}
-cv.onmousedown=e=>{if(phase!=="idle")return;drag=ev(e);};
+const busyPhase=()=>phase==="nav"||phase==="planning"||phase==="parsing";
+cv.onmousedown=e=>{if(busyPhase())return;drag=ev(e);};
 cv.onmousemove=e=>{if(!drag)return;const p=ev(e);drag.qx=p.x;drag.qy=p.y;};
 cv.onmouseup=()=>{
   if(!drag)return;
@@ -721,7 +722,8 @@ async function refreshPlaces(){
 async function sendAsk(){
   const q=$("cmdin").value.trim();
   if(!q)return;
-  if(phase!=="idle"){renderErr("当前有任务，请等结束后再发起");return;}
+  if(busyPhase()){renderErr("导航进行中，请先停止或等其结束");return;}
+  sel=null; plan=null;  // drop any pending unconfirmed selection
   phase="parsing"; setPhase("解析中…");
   try{
     const r=await fetch("/ask",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:q})});
@@ -742,7 +744,10 @@ async function sendAsk(){
     }
   }catch(err){phase="idle";setPhase("空闲");renderErr("解析请求失败: "+err);}
 }
-function pickPlace(n){const p=places[n]; if(p) selectGoal({x:p.x,y:p.y,yaw:p.yaw});}
+function pickPlace(n){
+  if(busyPhase()){renderErr("导航进行中，请先停止或等其结束");return;}
+  const p=places[n]; if(p) selectGoal({x:p.x,y:p.y,yaw:p.yaw});
+}
 async function markPlace(){
   const name=prompt("给当前位置起个名字（如：1705门口）：");
   if(!name)return;
