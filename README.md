@@ -3,6 +3,11 @@
 ELF-OS 是 ELF 四足机器人的官方软件仓库。本仓库将仿真、真机运行与模型推理
 代码分开管理，同时通过稳定的接口和可复用组件实现能力共享。
 
+> **多人开发请先读 [DEVELOPMENT.md](DEVELOPMENT.md)**：机器人上每人用
+> `/home/unitree/dev/<名字>/ELF-OS` 独立 worktree 开发，运行目录只部署。
+> `bash mkdev.sh <名字> <邮箱>` 一步建立自己的开发目录。
+
+
 ## 仓库结构
 
 ```text
