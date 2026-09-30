@@ -28,6 +28,7 @@ CLEAR_RADIUS = max(np.linalg.norm(v) for v in ROBOT['footprint']) + .05
 MAX_GOAL_DIST = 15
 PPM = 40  # rendered pixels per metre
 
+SKILL_PATH = ROOT.parent / '.zcode' / 'skills' / 'elf-nav' / 'SKILL.md'
 PLACES_PATH = ROOT / 'config' / 'places.yaml'
 LLM_CFG_PATH = ROOT / 'config' / 'llm.local.yaml'  # gitignored: {base_url, api_key, model}
 PLACES = {}
@@ -109,7 +110,8 @@ def place_resolve(query):
 
 
 def load_llm_cfg():
-    """OpenAI-compatible chat endpoint. Env vars win over llm.local.yaml."""
+    """OpenAI-compatible chat endpoint. llm.local.yaml < env vars < zcode
+    desktop install's coding-plan key (read from ~/.zcode, never committed)."""
     if LLM_CFG_PATH.exists():
         try:
             LLM.update({k: str(v) for k, v in (yaml.safe_load(LLM_CFG_PATH.read_text()) or {}).items()
@@ -118,16 +120,39 @@ def load_llm_cfg():
             pass
     for k in LLM:
         LLM[k] = os.environ.get('ELF_LLM_' + k.upper(), '') or LLM[k]
+    if not (LLM['base_url'] and LLM['api_key'] and LLM['model']):
+        try:
+            pc = json.loads(Path.home().joinpath('.zcode/v2/provider_config.json').read_text())
+            key = pc['config']['providerConfigRules']['providerRules'][0]['config']['access']['apiKey']
+            LLM['base_url'] = LLM['base_url'] or 'https://api.z.ai/api/coding/paas/v4'
+            LLM['api_key'] = LLM['api_key'] or key
+            LLM['model'] = LLM['model'] or 'GLM-5.3-Flash'
+        except Exception:
+            pass
     LLM['base_url'] = LLM['base_url'].rstrip('/')
+
+
+def _skill_prompt():
+    """Body of the elf-nav zcode skill: the system prompt for /ask chats."""
+    try:
+        return SKILL_PATH.read_text().split('---', 2)[2].strip()
+    except Exception:
+        return ''
+
+
+_FALLBACK_ASK_SYSTEM = (
+    '你是机器狗的导航指令解析器。把用户指令解析为一个目标点，只输出一个 JSON 对象：\n'
+    '{"name":"地点名或说明","x":数字,"y":数字,"yaw_deg":数字,"reply":"一句话中文说明"}。\n'
+    '无法确定目标时输出 {"error":"原因"}。优先匹配地点表；坐标必须在地图范围内。')
 
 
 def llm_chat(system, user):
     """One round through <base_url>/chat/completions. Returns content text."""
-    body = json.dumps({'model': LLM['model'], 'temperature': 0, 'messages': [
+    body = json.dumps({'model': LLM['model'], 'temperature': 0, 'max_tokens': 900, 'messages': [
         {'role': 'system', 'content': system}, {'role': 'user', 'content': user}]}).encode()
     req = urllib.request.Request(LLM['base_url'] + '/chat/completions', data=body, headers={
         'Content-Type': 'application/json', 'Authorization': 'Bearer ' + LLM['api_key']})
-    with urllib.request.urlopen(req, timeout=20) as r:
+    with urllib.request.urlopen(req, timeout=25) as r:
         data = json.loads(r.read())
     return data['choices'][0]['message']['content']
 
@@ -149,12 +174,13 @@ def ask_goal(text):
         table = '\n'.join(f"{n}: x={v['x']}, y={v['y']}, yaw={v['yaw']}"
                           + (f", aliases={v['aliases']}" if v.get('aliases') else '')
                           for n, v in PLACES.items()) or '(空)'
-        system = ('你是机器狗的导航指令解析器。已知地点表（名称: 坐标，yaw 单位度）：\n' + table +
-                  f'\n地图范围 x∈[{X0:.1f},{X0 + W_M:.1f}], y∈[{Y0:.1f},{Y0 + H_M:.1f}]。'
-                  '把用户指令解析为一个目标点，只输出一个 JSON 对象，不要任何其他文字：\n'
-                  '{"name":"地点名或自定义说明","x":数字,"y":数字,"yaw_deg":数字,"reply":"一句话中文说明"}\n'
-                  '优先从地点表选；指令含模糊位置描述（如"有打印机的那间"）时选最合理地点并在 reply 说明；'
-                  '指令与导航无关或无法确定目标时输出 {"error":"原因"}。')
+        s = locator.snapshot()
+        pose_line = (f"机器狗当前位姿：x={s['pose'][0]:.2f}, y={s['pose'][1]:.2f}, yaw={s['pose'][2]:.1f}°\n"
+                     if s['pose'] else '')
+        dyn = ('\n\n## 动态上下文\n地点表（名称: x, y, yaw 度）：\n' + table + '\n' + pose_line +
+               f'地图范围 x∈[{X0:.1f},{X0 + W_M:.1f}], y∈[{Y0:.1f},{Y0 + H_M:.1f}]。\n'
+               '用户指令见下一条消息，按契约只输出一个 JSON 对象。')
+        system = (_skill_prompt() or _FALLBACK_ASK_SYSTEM) + dyn
         try:
             raw = llm_chat(system, text)
             js = raw[raw.find('{'):raw.rfind('}') + 1]
