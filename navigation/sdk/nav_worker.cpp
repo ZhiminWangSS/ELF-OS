@@ -31,7 +31,7 @@ double seconds(){return std::chrono::duration<double>(Clock::now().time_since_ep
 struct Packet { unsigned long long sequence=0;double stamp=0,vx=0,wz=0;int healthy=0; };
 bool parse(const char*data,Packet &p){
  std::istringstream in(data);std::string extra;
- return bool(in>>p.sequence>>p.stamp>>p.vx>>p.wz>>p.healthy)&&!(in>>extra)&&std::isfinite(p.stamp)&&std::isfinite(p.vx)&&std::isfinite(p.wz)&&p.vx>=0&&p.vx<=.20&&std::abs(p.wz)<=.35&&(p.healthy==0||p.healthy==1);
+ return bool(in>>p.sequence>>p.stamp>>p.vx>>p.wz>>p.healthy)&&!(in>>extra)&&std::isfinite(p.stamp)&&std::isfinite(p.vx)&&std::isfinite(p.wz)&&p.vx>=0&&p.vx<=.30&&std::abs(p.wz)<=.2&&(p.healthy==0||p.healthy==1);
 }
 int main(int argc,char**argv){
  if(argc==3&&(std::string(argv[2])=="--inspect"||std::string(argv[2])=="--watch-remote")) {
@@ -96,7 +96,7 @@ int main(int argc,char**argv){
      client.reset(new unitree::robot::go2::SportClient);client->SetTimeout(.1f);client->Init();
      if(stop()!=0)throw std::runtime_error("initial StopMove failed");
    }
-   Packet current;unsigned long long last_sequence=0;double received=0;
+   Packet current;unsigned long long last_sequence=0;double received=0,unhealthy_since=0;
    while(!interrupted){
      char data[256];ssize_t n;bool malformed=false,new_command=false;
      while((n=recv(socket_fd,data,sizeof(data)-1,MSG_DONTWAIT))>0){
@@ -106,7 +106,14 @@ int main(int argc,char**argv){
      const double now=seconds();std::string rejection;
      if(malformed){latched=true;rejection="malformed_or_replayed_command";if(latch_reason.empty())latch_reason=rejection;}
      if(std::filesystem::exists(cancel)){latched=true;rejection="operator_stop";if(latch_reason.empty())latch_reason=rejection;}
-     if(!current.healthy||now-current.stamp<0||now-current.stamp>.25||now-received>.25)rejection="upstream_stale_or_unhealthy";
+     // Stream freshness stays fail-closed; the boolean health flag may dip for
+     // ~1 s during in-place rotation (deskew quality), so ride dips shorter than
+     // 1.5 s instead of latching a stop on every one of them.
+     if(now-current.stamp<0||now-current.stamp>.25||now-received>.25){rejection="upstream_stale_or_unhealthy";unhealthy_since=0;}
+     else if(!current.healthy){
+       if(unhealthy_since==0)unhealthy_since=now;
+       if(now-unhealthy_since>1.5)rejection="upstream_stale_or_unhealthy";
+     } else unhealthy_since=0;
      if(execute){
        std::lock_guard<std::mutex>g(mutex);const double state_check_now=seconds();auto rpy=state.imu_state().rpy();
        if(const char* reason=elf_nav::state_rejection(state_check_now-state_time,state.error_code(),state.mode(),rpy[0],rpy[1],moving))rejection=reason;

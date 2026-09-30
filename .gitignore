@@ -30,6 +30,7 @@ captures/
 *.bag
 *.bag.active
 *.db3
+*.log
 
 # Models and datasets (store download instructions instead)
 checkpoints/

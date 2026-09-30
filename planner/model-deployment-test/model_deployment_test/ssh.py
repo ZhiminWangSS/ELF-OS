@@ -13,7 +13,8 @@ class SshTunnel:
         self.process = None
 
     def start(self, timeout_s=8.0):
-        command = ["ssh", "-N", "-T", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=15",
+        command = ["ssh", "-N", "-T", "-o", "ExitOnForwardFailure=yes", "-o", "StrictHostKeyChecking=yes",
+                   "-o", "ServerAliveInterval=15",
                    "-o", "ServerAliveCountMax=3", "-L", "%d:%s:%d" % (self.local_port, self.remote_host, self.remote_port), self.host]
         self.process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         deadline = time.monotonic() + timeout_s

@@ -30,18 +30,50 @@ Visualization Manager:
         Durability Policy: Transient Local
         Reliability Policy: Reliable
         Depth: 1
+    - Class: rviz_default_plugins/Map
+      Name: Global Costmap
+      Enabled: true
+      Alpha: 0.35
+      Color Scheme: costmap
+      Topic:
+        Value: /global_costmap/costmap
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+        Depth: 1
+    - Class: rviz_default_plugins/Polygon
+      Name: Robot Collision Footprint
+      Enabled: true
+      Color: 0; 200; 255
+      Topic:
+        Value: /local_costmap/published_footprint
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        Depth: 1
     - Class: rviz_default_plugins/Path
-      Name: Planned Path
+      Name: Local Controller Path
+      Enabled: true
+      Color: 255; 0; 255
+      Line Style: Lines
+      Line Width: 0.03
+      Topic:
+        Value: /navigation/display/local_plan
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        Depth: 1
+    - Class: rviz_default_plugins/Path
+      Name: Global Plan Preview (60s)
       Enabled: true
       Color: 0; 255; 0
       Line Style: Lines
       Line Width: 0.05
       Topic:
-        Value: /plan
-        Depth: 10
+        Value: /navigation/display/global_plan
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        Depth: 1
     - Class: rviz_default_plugins/PointCloud2
       Name: Live Obstacles
-      Enabled: true
+      Enabled: false
       Size (m): 0.05
       Style: Flat Squares
       Color Transformer: FlatColor
@@ -62,14 +94,16 @@ Visualization Manager:
     - Class: rviz_default_plugins/Select
     - Class: rviz_default_plugins/SetInitialPose
       Topic: /initialpose
+    - Class: rviz_default_plugins/SetGoal
+      Topic: /goal_pose
   Views:
     Current:
       Class: rviz_default_plugins/TopDownOrtho
       Name: Floor
       Target Frame: map
-      Scale: 20
-      X: -9
-      Y: -8
+      Scale: 26
+      X: -9.8
+      Y: -0.5
 Window Geometry:
   Width: 1200
   Height: 850

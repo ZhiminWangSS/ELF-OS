@@ -109,25 +109,33 @@ double number(const char* arg) {
   return v;
 }
 int run(int argc, char** argv) {
-  if (argc<3) throw std::runtime_error("usage: elf_go2 IFACE state|image PATH|stop|step VX YAW_RATE SECONDS --execute");
+  if (argc<3) throw std::runtime_error("usage: elf_go2 IFACE state|image PATH|stop|step VX YAW_RATE SECONDS --execute|rotate YAW_RATE SECONDS --execute");
   std::string iface=argv[1], action=argv[2];
   elf::Step spec{};
   if (action=="step") {
     if (argc!=7 || std::string(argv[6])!="--execute") throw std::runtime_error("step requires explicit --execute");
     spec={number(argv[3]),number(argv[4]),number(argv[5])}; elf::validate(spec);
+  } else if (action=="rotate") {
+    // One continuous in-place rotation without inter-segment stops; used by
+    // the view scan to reach +/-90 degrees in a single motion command.
+    if (argc!=6 || std::string(argv[5])!="--execute") throw std::runtime_error("rotate requires explicit --execute");
+    spec={0.0,number(argv[3]),number(argv[4])};
+    if (!std::isfinite(spec.yaw_rate) || std::abs(spec.yaw_rate)>.35 ||
+        !std::isfinite(spec.seconds) || spec.seconds<=0 || spec.seconds>8)
+      throw std::runtime_error("rotate limits: |yaw-rate| <= 0.35 rad/s, duration (0,8] s, no forward speed");
   } else if (action=="image") { if (argc!=4) throw std::runtime_error("image requires output path"); }
   else if ((action!="state" && action!="stop") || argc!=3) throw std::runtime_error("unknown command or extra arguments");
 
   std::filesystem::path cancel;
   std::unique_ptr<MotionLock> lock;
-  if (action=="step" || action=="stop") {
+  if (action=="step" || action=="rotate" || action=="stop") {
     auto dir=std::filesystem::path("/tmp")/("elf-go2-"+std::to_string(getuid()));
     if (mkdir(dir.c_str(),0700)!=0 && errno!=EEXIST) throw std::runtime_error("cannot create runtime directory");
     struct stat st{};
     if (lstat(dir.c_str(),&st)!=0 || !S_ISDIR(st.st_mode) || st.st_uid!=getuid() || (st.st_mode&077)!=0)
       throw std::runtime_error("unsafe runtime directory");
     cancel=dir/"cancel";
-    if (action=="step") { lock.reset(new MotionLock(dir/"motion.lock")); std::filesystem::remove(cancel); }
+    if (action=="step" || action=="rotate") { lock.reset(new MotionLock(dir/"motion.lock")); std::filesystem::remove(cancel); }
     else { std::ofstream marker(cancel); marker << "stop\n"; if (!marker) throw std::runtime_error("cannot signal cancellation"); }
   }
   unitree::robot::ChannelFactory::Instance()->Init(0,iface);
@@ -144,21 +152,24 @@ int run(int argc, char** argv) {
   if (action=="state") { StateReader reader; print_state(reader.wait()); return 0; }
   unitree::robot::go2::SportClient client; client.SetTimeout(.3f); client.Init();
   if (action=="stop") return stop(client)==0 ? 0 : 1;
-  unitree::robot::go2::ObstaclesAvoidClient obstacle_client;
-  obstacle_client.SetTimeout(.3f); obstacle_client.Init();
-  bool avoidance_enabled = false;
-  int avoidance_rc = obstacle_client.SwitchGet(avoidance_enabled);
-  if (avoidance_rc != 0) throw std::runtime_error("obstacle avoidance status query failed");
-  if (!avoidance_enabled) {
-    avoidance_rc = obstacle_client.SwitchSet(true);
-    if (avoidance_rc != 0 || obstacle_client.SwitchGet(avoidance_enabled) != 0 || !avoidance_enabled)
-      throw std::runtime_error("unable to enable obstacle avoidance");
+  {
+    // Obstacle avoidance is disabled for supervised low-speed autonomy: its
+    // command-source arbitration surfaces as error_code 2 and rejected Move
+    // RPCs. Disabling can flip the sport mode briefly; wait for balanceStand.
+    unitree::robot::go2::ObstaclesAvoidClient obstacle_client;
+    obstacle_client.SetTimeout(.3f); obstacle_client.Init();
+    bool avoidance_enabled = false;
+    if (obstacle_client.SwitchGet(avoidance_enabled) == 0 && avoidance_enabled)
+      obstacle_client.SwitchSet(false);
   }
-  if (obstacle_client.UseRemoteCommandFromApi(true) != 0)
-    throw std::runtime_error("unable to acquire obstacle avoidance command source");
   StateReader reader;
   bool ok=false;
   try {
+    auto settle=Clock::now();
+    while (elapsed(settle)<5 && !interrupted) {
+      if (reader.wait().state.mode()==1) break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
     auto initial=reader.wait(); print_state(initial);
     if (!check_state(initial,true,"before_move")) throw std::runtime_error("step blocked by state guard");
     if (stop(client)!=0) throw std::runtime_error("stop preflight failed");
@@ -167,22 +178,27 @@ int run(int argc, char** argv) {
       if (interrupted || std::filesystem::exists(cancel)) throw std::runtime_error("step cancelled");
       auto s=reader.sample(); print_state(s);
       if (!check_state(s,false,"during_move")) throw std::runtime_error("step stopped by state guard");
-      int rc=obstacle_client.Move(spec.vx,0,spec.yaw_rate);
+      int rc=client.Move(spec.vx,0,spec.yaw_rate);
       std::cout << "{\"event\":\"move\",\"code\":" << rc << "}" << std::endl;
-      if (rc!=0) throw std::runtime_error("Move RPC failed");
+      if (rc!=0) {
+        // The sport service can reject the trailing Move of a segment while
+        // it is already preparing to stop (observed code 3104). When the
+        // commanded duration is exhausted, treat the segment as complete.
+        if (elapsed(begin)+0.15 >= spec.seconds) break;
+        throw std::runtime_error("Move RPC failed");
+      }
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     ok=true;
   } catch (const std::exception& e) { std::cerr << e.what() << std::endl; }
-  int avoidance_stop = obstacle_client.Move(0, 0, 0);
-  obstacle_client.UseRemoteCommandFromApi(false);
+  int move_stop = client.Move(0, 0, 0);
   int stopped=stop(client);
   // Observe settling after StopMove, but never describe RPC acknowledgement as
   // proof of exact displacement or stationary legs.
   std::this_thread::sleep_for(std::chrono::milliseconds(700));
   auto final=reader.sample(); print_state(final);
   bool final_healthy=check_state(final,false,"after_stop");
-  return ok && avoidance_stop == 0 && stopped==0 && final_healthy ? 0 : 1;
+  return ok && move_stop == 0 && stopped==0 && final_healthy ? 0 : 1;
 }
 int main(int argc,char** argv) {
   std::signal(SIGINT,on_signal); std::signal(SIGTERM,on_signal);

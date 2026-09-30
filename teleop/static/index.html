@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>ELF-OS Go2 遥控台</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: #101418; color: #d8dee6; display: flex; gap: 16px; padding: 16px; }
+  .left { flex: 0 0 620px; }
+  .right { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+  .panel { background: #171d24; border: 1px solid #26303a; border-radius: 10px; padding: 12px; }
+  h2 { margin: 2px 0 10px; font-size: 15px; color: #8fb4d9; }
+  video { width: 100%; border-radius: 8px; background: #000; }
+  .chips { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .chip { padding: 4px 10px; border-radius: 6px; background: #202a34; font-size: 13px; }
+  .chip.warn { background: #4a2a2a; color: #ff9c9c; }
+  .chip.ok { background: #23402a; color: #9fe0ae; }
+  .grid { display: grid; gap: 8px; }
+  .nav { grid-template-columns: repeat(3, 1fr); }
+  button { padding: 12px 8px; font-size: 15px; border: 1px solid #33414e; border-radius: 8px;
+           background: #222d38; color: #d8dee6; cursor: pointer; }
+  button:hover { background: #2b3846; }
+  button:disabled { opacity: .4; cursor: default; }
+  .stop { background: #7a2222; border-color: #a33; font-size: 18px; padding: 16px; }
+  .stop:hover { background: #963030; }
+  .seek button { background: #2b2f46; border-color: #454b6e; }
+  .seek button:hover { background: #363c5a; }
+  .views { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+  .views img { width: 100%; border-radius: 6px; background: #000; min-height: 60px; }
+  .views figcaption { text-align: center; font-size: 12px; color: #7d8b99; margin-top: 3px; }
+  pre { margin: 0; font-size: 12px; line-height: 1.5; max-height: 260px; overflow-y: auto;
+        white-space: pre-wrap; color: #9db1c4; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  input[type=range] { flex: 1; }
+  #busy { display: none; position: fixed; top: 12px; right: 16px; padding: 6px 14px;
+          border-radius: 6px; background: #4a3a12; color: #ffd27c; font-size: 14px; z-index: 9; }
+</style>
+</head>
+<body>
+  <div id="busy">⏳ 执行中…（转向最长约 45 秒）</div>
+  <div class="left">
+    <div class="panel">
+      <h2>前置相机</h2>
+      <img src="/api/stream" alt="camera">
+      <div class="chips" id="chips"></div>
+    </div>
+    <div class="panel seek" style="margin-top:12px">
+      <h2>SEEK — 原地环顾（左/正前/右 90° 扫描）</h2>
+      <button id="seek" style="width:100%">执行 SEEK 扫描</button>
+      <div class="views">
+        <figure><img id="v-left"><figcaption>LEFT</figcaption></figure>
+        <figure><img id="v-forward"><figcaption>FORWARD</figcaption></figure>
+        <figure><img id="v-right"><figcaption>RIGHT</figcaption></figure>
+      </div>
+    </div>
+  </div>
+  <div class="right">
+    <div class="panel">
+      <h2>NAV — 离散动作（模型动作空间，含护栏）</h2>
+      <div class="grid nav">
+        <button data-cmd="turn_left" data-val="15">↺ 15°</button>
+        <button data-cmd="forward" data-val="25">▲ 25cm</button>
+        <button data-cmd="turn_right" data-val="15">↻ 15°</button>
+        <button data-cmd="turn_left" data-val="30">↺ 30°</button>
+        <button data-cmd="forward" data-val="50">▲ 50cm</button>
+        <button data-cmd="turn_right" data-val="30">↻ 30°</button>
+        <button data-cmd="turn_left" data-val="45">↺ 45°</button>
+        <button data-cmd="forward" data-val="75">▲ 75cm</button>
+        <button data-cmd="turn_right" data-val="45">↻ 45°</button>
+      </div>
+      <button class="stop" style="width:100%;margin-top:8px" data-cmd="stop" data-val="0">■ 停 止</button>
+    </div>
+    <div class="panel">
+      <h2>微调 — 连续原地旋转</h2>
+      <div class="row">
+        <button data-rot="-30">↺ 30°</button>
+        <button data-rot="-10">↺ 10°</button>
+        <button data-rot="10">↻ 10°</button>
+        <button data-rot="30">↻ 30°</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>任务记录 — 开启后自动归档第一人称帧与 seek 三视角</h2>
+      <div class="row">
+        <input id="sesl" placeholder="任务名（如 corridor-case）" style="flex:1;padding:8px;border-radius:6px;border:1px solid #33414e;background:#10161c;color:#d8dee6">
+        <button id="sesbtn" onclick="toggleSession()">● 开始记录</button>
+      </div>
+      <div id="sesinfo" style="margin-top:8px;font-size:12px;color:#7d8b99">未在记录</div>
+    </div>
+    <div class="panel" style="flex:1">
+      <h2>日志</h2>
+      <pre id="log"></pre>
+    </div>
+  </div>
+<script>
+const $ = id => document.getElementById(id);
+let busy = false;
+
+window.onerror = (msg, src, line) => {
+  $("busy").style.display = "block";
+  $("busy").textContent = "⚠ 页面脚本错误: " + msg + " @" + line;
+};
+
+function setBusy(b) {
+  busy = b;
+  $("busy").style.display = b ? "block" : "none";
+  document.querySelectorAll("button").forEach(el => {
+    if (el.classList.contains("stop")) return;   // emergency stop always enabled
+    el.disabled = b;
+  });
+}
+
+async function post(url, body) {
+  setBusy(true);
+  try {
+    const r = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"},
+                                body: JSON.stringify(body || {})});
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      const msg = d.detail || r.statusText;
+      alert("失败: " + msg);
+      throw new Error(msg);
+    }
+    return r.json();
+  } catch (e) {
+    if (e instanceof TypeError) alert("无法连接服务——页面是旧的或隧道断了，请强制刷新 (Ctrl+Shift+R)");
+    throw e;
+  } finally { setBusy(false); }
+}
+
+const nav = (a, v) => post("/api/command", {action: a, value: v});
+const rot = deg => post("/api/command", {action: "rotate", value: deg});
+
+document.querySelectorAll("[data-cmd]").forEach(el =>
+  el.addEventListener("click", () => nav(el.dataset.cmd, Number(el.dataset.val))));
+document.querySelectorAll("[data-rot]").forEach(el =>
+  el.addEventListener("click", () => rot(Number(el.dataset.rot))));
+
+async function toggleSession() {
+  const active = $("sesbtn").textContent.includes("停止");
+  if (active) {
+    await post("/api/session/stop");
+  } else {
+    const label = $("sesl").value.trim() || "task";
+    await post("/api/session/start", {label});
+  }
+  pollState();
+}
+
+$("seek").onclick = async () => {
+  const data = await post("/api/seek");
+  if (!data) return;
+  $("v-left").src = data.views.left;
+  $("v-forward").src = data.views.forward;
+  $("v-right").src = data.views.right;
+};
+
+async function pollState() {
+  try {
+    const d = await (await fetch("/api/state")).json();
+    const s = d.state;
+    const chips = [];
+    if (s && s.mode !== undefined) {
+      chips.push(["mode " + s.mode + (s.mode === 1 ? " 站立" : s.mode === 3 ? " 运动" : " ⚠"), s.mode === 1 ? "ok" : "warn"]);
+      chips.push(["err " + s.error_code, s.error_code === 0 ? "ok" : "warn"]);
+      chips.push(["yaw " + (s.rpy[2] * 57.3).toFixed(0) + "°", ""]);
+      chips.push(["pos " + s.position.map(v => v.toFixed(1)).join(", "), ""]);
+    } else {
+      chips.push(["状态: 等待相机", "warn"]);
+    }
+    if (d.camera_error) chips.push(["相机: " + d.camera_error.slice(0, 60), "warn"]);
+    $("chips").innerHTML = chips.map(([t, c]) => `<span class="chip ${c}">${t}</span>`).join(" ");
+    $("log").textContent = (d.log || []).join("\n");
+    const ses = d.session || {};
+    if (ses.active) {
+      $("sesbtn").textContent = "■ 停止记录";
+      $("sesinfo").innerHTML = `<span class="chip warn">REC</span> ${ses.label} · 已归档 ${ses.actions} 帧<br>${ses.dir}`;
+    } else {
+      $("sesbtn").textContent = "● 开始记录";
+      $("sesinfo").textContent = "未在记录";
+    }
+  } catch (e) { /* server restarting */ }
+}
+setInterval(pollState, 1500);
+pollState();
+
+</script>
+</body>
+</html>

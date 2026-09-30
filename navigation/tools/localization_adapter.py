@@ -110,6 +110,7 @@ class Adapter(Node):
         out=PointCloud2();out.header.frame_id='map';out.header.stamp=msg.header.stamp;out.height=1;out.width=len(points)
         out.fields=[PointField(name=k,offset=i*4,datatype=PointField.FLOAT32,count=1) for i,k in enumerate(['x','y','z'])]
         out.point_step=12;out.row_step=12*len(points);out.is_dense=True;out.data=points.tobytes();self.cloud_pub.publish(out);self.cloud_received=time.monotonic()
+
     def health(self):
         now=time.monotonic();q=self.quality;limit=self.config['sensor_timeout_s']
         healthy=bool(self.valid_pose and q and len(q)==4 and np.isfinite(q).all() and q[1]>=100 and q[2]>=80 and q[2]/q[1]>=.25 and q[3]<.12 and all(0<=now-t<limit for t in [self.quality_received,self.odom_received,self.cloud_received]))

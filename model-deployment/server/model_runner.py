@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import importlib.util
 import time
 from pathlib import Path
@@ -38,14 +39,26 @@ class SeekVLNModel:
         if not Path(model_path).is_dir():
             raise FileNotFoundError("SeekVLN checkpoint does not exist: " + model_path)
         tokenizer, model, processor, _ = load_auxthink_base(
-            load_pretrained_model, model_path, get_model_name_from_path(model_path))
+            load_pretrained_model, model_path, get_model_name_from_path(model_path),
+            device_map={"": device}, device=device)
         self.control_tokens = ensure_seekvln_tokenizer(tokenizer)
-        model.to(device=device, dtype=torch.float16); model.eval()
+        meta_parameters = [name for name, value in model.named_parameters() if value.device.type == "meta"]
+        if meta_parameters:
+            raise RuntimeError("checkpoint left parameters on meta device: " + ", ".join(meta_parameters[:5]))
+        model.eval()
         self.tokenizer, self.model, self.processor = tokenizer, model, processor
         self.device = torch.device(device)
         self.control_ids = {name: int(tokenizer.convert_tokens_to_ids(name))
                             for name in ("<nav>", "<seek>", "<think>", "</think>")}
         self.model_version = Path(model_path).name
+        self.model_path = model_path
+        digest = hashlib.sha256()
+        for name in ("config.json", "tokenizer_config.json", "seekvln_export_summary.json"):
+            path = Path(model_path) / name
+            if not path.is_file():
+                raise FileNotFoundError("SeekVLN checkpoint metadata is missing: " + str(path))
+            digest.update(name.encode("utf-8")); digest.update(path.read_bytes())
+        self.checkpoint_metadata_sha256 = digest.hexdigest()
 
     def _inputs(self, prompt_ids, images):
         query = self.torch.tensor(prompt_ids, dtype=self.torch.long, device=self.device).unsqueeze(0)

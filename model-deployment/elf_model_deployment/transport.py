@@ -45,5 +45,11 @@ class SeekVLNClient:
             result = json.loads(response.read().decode("utf-8"))
         if not isinstance(result, dict) or result.get("request_id") != request_id:
             raise RuntimeError("invalid inference response request_id")
+        if result.get("schema") != "elf.seekvln-response.v1" or result.get("phase") != phase:
+            raise RuntimeError("invalid inference response schema or phase")
+        if phase == "mode" and result.get("mode") not in ("nav", "seek"):
+            raise RuntimeError("invalid inference mode response")
+        if phase == "action" and not isinstance(result.get("raw_text"), str):
+            raise RuntimeError("invalid inference action response")
         result["client_latency_s"] = time.monotonic() - started
         return result

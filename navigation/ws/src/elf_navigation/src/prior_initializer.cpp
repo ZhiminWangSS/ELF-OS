@@ -42,7 +42,7 @@ class Initializer: public rclcpp::Node {
      if(!q.coeffs().allFinite()||q.norm()<.9||!std::isfinite(t.x+t.y+t.z))return;
      guess_.block<3,3>(0,0)=q.normalized().toRotationMatrix();guess_.block<3,1>(0,3)=Eigen::Vector3f(t.x,t.y,t.z);stable_=0;
    });
-   scan_=create_subscription<livox_ros_driver2::msg::CustomMsg>("/livox/lidar",rclcpp::SensorDataQoS(),[this](livox_ros_driver2::msg::CustomMsg::SharedPtr m){align(m);});
+   scan_=create_subscription<livox_ros_driver2::msg::CustomMsg>("/livox/lidar",rclcpp::SensorDataQoS().keep_last(1),[this](livox_ros_driver2::msg::CustomMsg::SharedPtr m){align(m);});
    status("Waiting for lidar; initial guess must be near actual map pose");
  }
  void align(livox_ros_driver2::msg::CustomMsg::SharedPtr msg){
@@ -72,6 +72,9 @@ class Initializer: public rclcpp::Node {
    bool consistent=(estimate.block<3,1>(0,3)-previous_.block<3,1>(0,3)).norm()<.08&&Eigen::AngleAxisf(estimate.block<3,3>(0,0)*previous_.block<3,3>(0,0).transpose()).angle()<.05;
    stable_=acceptable?(consistent?stable_+1:1):0;previous_=estimate;
    status("overlap="+std::to_string(overlap)+" rmse="+std::to_string(rmse)+" shift="+std::to_string(shift)+" angle="+std::to_string(angle)+" stable="+std::to_string(stable_));
+   // Throttle from completion: ICP can take longer than the scan period.
+   // Let queued scans drain before considering another fresh measurement.
+   last_=now().seconds();
    if(stable_<5)return;
    Pose out;out.header.frame_id="map";out.header.stamp=msg->header.stamp;
    out.pose.pose.position.x=estimate(0,3);out.pose.pose.position.y=estimate(1,3);out.pose.pose.position.z=estimate(2,3);

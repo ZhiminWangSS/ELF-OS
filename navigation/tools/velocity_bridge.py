@@ -24,7 +24,7 @@ class Bridge(Node):
     def command(self,m):self.guard.receive([m.linear.x,m.linear.y,m.linear.z,m.angular.x,m.angular.y,m.angular.z],time.monotonic())
     def tick(self):
         vx,wz=self.guard.output(time.monotonic());m=Twist();m.linear.x=vx;m.angular.z=wz;self.preview.publish(m)
-        self.sequence+=1;healthy=self.guard.health and not self.guard.latched and time.monotonic()-self.guard.health_time<self.guard.health_timeout
+        self.sequence+=1;healthy=self.guard.health_ok(time.monotonic()) and not self.guard.latched and time.monotonic()-self.guard.health_time<self.guard.health_timeout
         # Timestamp is the ORIGINAL command reception, not this timer heartbeat.
         stamp=self.guard.received if math.isfinite(self.guard.received) else 0.
         packet=f'{self.sequence} {stamp:.9f} {vx:.6f} {wz:.6f} {int(healthy)}\n'

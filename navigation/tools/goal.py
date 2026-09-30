@@ -38,14 +38,14 @@ def cancel(n):
 def main():
     p=argparse.ArgumentParser();p.add_argument('--x',type=float);p.add_argument('--y',type=float);p.add_argument('--yaw-deg',type=float,default=0.)
     p.add_argument('--navigate',action='store_true');p.add_argument('--cancel',action='store_true');p.add_argument('--timeout',type=float,default=15.)
-    p.add_argument('--max-distance',type=float,default=1.,help='Explicit hardware-test goal radius; capped at 3.5 m')
+    p.add_argument('--max-distance',type=float,default=1.,help='Explicit supervised goal radius; capped at 15 m')
     p.add_argument('--allow-long-distance',action='store_true',help='Allow a goal beyond the short supervised-test radius')
     a=p.parse_args();rclpy.init();n=rclpy.create_node('navigation_goal_client');client=None;active=False
     try:
         if a.cancel:stop_worker();cancel(n);return
         if a.x is None or a.y is None or not np.isfinite([a.x,a.y,a.yaw_deg]).all():raise ValueError('Provide finite --x, --y, --yaw-deg')
-        if not 0<=a.timeout<=60 or (a.timeout==0 and not a.allow_long_distance):raise ValueError('Timeout must be 0..60 seconds; 0 is reserved for long-distance navigation')
-        if not (0<a.max_distance<=3.5 or (a.allow_long_distance and 0<a.max_distance<=1000)):raise ValueError('Max distance must be 0..3.5 metres, or 0..1000 metres with --allow-long-distance')
+        if not 0<=a.timeout<=150 or (a.timeout==0 and not a.allow_long_distance):raise ValueError('Timeout must be 0..150 seconds; 0 is reserved for long-distance navigation')
+        if not (0<a.max_distance<=15 or (a.allow_long_distance and 0<a.max_distance<=1000)):raise ValueError('Max distance must be 0..15 metres, or 0..1000 metres with --allow-long-distance')
         health=[];poses=[]
         n.create_subscription(Bool,'/navigation/localization_healthy',lambda m:health.append((time.monotonic(),m.data)),10)
         n.create_subscription(Odometry,'/odom',lambda m:poses.append(m),10)
@@ -68,9 +68,15 @@ def main():
         handle=wait(n,client.send_goal_async(request),3)
         if not handle.accepted:raise RuntimeError('Goal rejected')
         active=a.navigate;future=handle.get_result_async();end=time.monotonic()+a.timeout
+        lost_since=None
         while not future.done() and (a.timeout==0 or time.monotonic()<end):
             rclpy.spin_once(n,timeout_sec=.05)
-            if a.navigate and (not health[-1][1] or time.monotonic()-health[-1][0]>.25):raise RuntimeError('Localization lost; cancelling')
+            if a.navigate and (not health[-1][1] or time.monotonic()-health[-1][0]>.25):
+                # In-place rotation transiently depresses localization quality; give the
+                # frontend 1.5 s to recover before treating it as a real loss.
+                lost_since=lost_since if lost_since else time.monotonic()
+                if time.monotonic()-lost_since>1.5:raise RuntimeError('Localization lost; cancelling')
+            else:lost_since=None
         if not future.done():raise RuntimeError('Goal timed out; cancelling')
         result=future.result();active=False
         print(json.dumps({'status':result.status,'mode':'navigate' if a.navigate else 'plan_only','path_points':len(result.result.path.poses) if not a.navigate else None}))

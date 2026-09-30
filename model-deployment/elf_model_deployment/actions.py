@@ -44,6 +44,29 @@ def parse_seekvln_output(raw: str, mode: str = "nav") -> PrimitiveAction:
     return PrimitiveAction("turn_" + direction, number, "degree", str(raw))
 
 
+def parse_seekvln_prediction(prediction, mode="nav"):
+    """Validate the official parser result and independently parse its text."""
+    if prediction.get("format_valid") is not True:
+        return PrimitiveAction("invalid", raw=str(prediction.get("raw_text", "")))
+    actions = prediction.get("actions")
+    if not isinstance(actions, list) or not 1 <= len(actions) <= 3:
+        return PrimitiveAction("invalid", raw=str(prediction.get("raw_text", "")))
+    if any(not isinstance(item, int) or isinstance(item, bool) for item in actions):
+        return PrimitiveAction("invalid", raw=str(prediction.get("raw_text", "")))
+    if len(set(actions)) != 1 or actions[0] not in (0, 1, 2, 3):
+        return PrimitiveAction("invalid", raw=str(prediction.get("raw_text", "")))
+    if actions[0] == 0 and len(actions) != 1:
+        return PrimitiveAction("invalid", raw=str(prediction.get("raw_text", "")))
+    value = {1: ("forward", 25 * len(actions), "cm"),
+             2: ("turn_left", 15 * len(actions), "degree"),
+             3: ("turn_right", 15 * len(actions), "degree"),
+             0: ("stop", 0, "none")}[actions[0]]
+    parsed = parse_seekvln_output(prediction.get("raw_text", ""), mode)
+    if (parsed.name, parsed.value, parsed.unit) != value:
+        return PrimitiveAction("invalid", raw=str(prediction.get("raw_text", "")))
+    return parsed
+
+
 def action_to_go2_args(action: PrimitiveAction):
     if action.name == "invalid":
         raise ValueError("invalid_model_output")

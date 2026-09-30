@@ -40,9 +40,11 @@ DISCRETE_ACTIONS = {
     ('turn_left', 15, 'degree'): (0.0, .35, round(math.radians(15) / .35, 3)),
     ('turn_left', 30, 'degree'): (0.0, .35, round(math.radians(30) / .35, 3)),
     ('turn_left', 45, 'degree'): (0.0, .35, round(math.radians(45) / .35, 3)),
+    ('turn_left', 90, 'degree'): (0.0, .35, round(math.radians(90) / .35, 3)),
     ('turn_right', 15, 'degree'): (0.0, -.35, round(math.radians(15) / .35, 3)),
     ('turn_right', 30, 'degree'): (0.0, -.35, round(math.radians(30) / .35, 3)),
     ('turn_right', 45, 'degree'): (0.0, -.35, round(math.radians(45) / .35, 3)),
+    ('turn_right', 90, 'degree'): (0.0, -.35, round(math.radians(90) / .35, 3)),
     ('stop', 0, 'none'): (0.0, 0.0, 0.0),
 }
 
@@ -173,7 +175,7 @@ class Backend:
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('action', choices=['build', 'observe', 'state', 'step', 'stop', 'discrete-action'])
+    p.add_argument('action', choices=['build', 'observe', 'state', 'step', 'stop', 'discrete-action', 'rotate'])
     p.add_argument('--iface', default='eth0')
     p.add_argument('--sdk-root', type=Path, default=Path.home()/'unitree_sdk2-2.0.2')
     p.add_argument('--build-dir', type=Path, default=ROOT/'build')
@@ -192,7 +194,18 @@ def main(argv=None):
     try:
         if args.action == 'build':
             backend.build(); return 0
-        if args.action == 'step':
+        if args.action == 'rotate':
+            if not args.execute:
+                print(json.dumps({'dry_run': True, 'action': 'rotate',
+                                  'yaw_rate': args.yaw_rate, 'seconds': args.seconds,
+                                  'nominal_angle_deg': round(math.degrees(args.yaw_rate * args.seconds), 1)}))
+                return 0
+            if args.observation is None:
+                raise ValueError('rotate --execute requires --observation')
+            observation = validate_observation(args.observation, args.iface)
+            result = backend.invoke(args.iface, 'rotate', args.yaw_rate, args.seconds, '--execute',
+                                    observation=observation)
+        elif args.action == 'step':
             validate_step(args.vx, args.yaw_rate, args.seconds)
             if not args.execute:
                 print(json.dumps({'dry_run': True, 'vx': args.vx, 'yaw_rate': args.yaw_rate,

@@ -30,3 +30,7 @@ class SshTunnel:
             except subprocess.TimeoutExpired:
                 self.process.kill()
         self.process = None
+
+    @property
+    def alive(self):
+        return self.process is not None and self.process.poll() is None

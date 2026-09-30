@@ -9,7 +9,7 @@ def main():
     p.add_argument('--goal-x',type=float);p.add_argument('--goal-y',type=float);p.add_argument('--goal-yaw-deg',type=float,default=0.)
     p.add_argument('--max-distance',type=float,default=1.);p.add_argument('--goal-timeout',type=float,default=15.)
     a=p.parse_args()
-    if not 0<a.seconds<=60:raise SystemExit('Test session duration must be 0..60 seconds')
+    if not 0<a.seconds<=180:raise SystemExit('Test session duration must be 0..180 seconds')
     requested_goal=(a.goal_x is not None or a.goal_y is not None)
     if requested_goal and (a.goal_x is None or a.goal_y is None):raise SystemExit('Provide both --goal-x and --goal-y')
     report=check();print(json.dumps(report,indent=2),flush=True)
@@ -38,7 +38,10 @@ def main():
                 (log_dir/'goal.log').write_text(result.stdout+result.stderr)
                 print(result.stdout,end='',flush=True)
                 if result.returncode!=0:raise RuntimeError('Navigation goal did not complete; see goal.log')
-            end=time.monotonic()+a.seconds
+            # In goal mode goal.py already stops motion before returning, so the
+            # session window has no purpose after it; 2 s grace then tear down.
+            # Manual mode (no goal) keeps the full window for shell-driven tests.
+            end=time.monotonic()+(2. if requested_goal else a.seconds)
             while time.monotonic()<end:
                 if worker.poll() is not None or bridge.poll() is not None:break
                 time.sleep(.05)

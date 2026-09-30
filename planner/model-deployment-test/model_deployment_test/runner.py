@@ -43,7 +43,7 @@ def execute_subgoal(request, *, ssh_host=None, execute=False, run_dir=Path("runs
     tunnel = SshTunnel(ssh_host) if ssh_host else None
     client = InferenceClient(endpoint)
     try:
-        if tunnel and execute:
+        if tunnel:
             tunnel.start()
         for decision in range(request.max_decisions):
             if time.monotonic() - started >= request.max_seconds:

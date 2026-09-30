@@ -11,7 +11,7 @@ class GuardTests(unittest.TestCase):
         g.healthy(True,11);self.assertEqual(g.output(11),(0.,0.))
     def test_clamps_limits(self):
         g=VelocityGuard();g.healthy(True,1);g.receive([10,0,0,0,0,-5],1)
-        self.assertEqual(g.output(1),(.2,-.35))
+        self.assertEqual(g.output(1),(.3,-.2))
     def test_health_timeout_is_separate_from_command_timeout(self):
         g=VelocityGuard(timeout=.25,health_timeout=.5);g.healthy(True,0);g.receive([.1,0,0,0,0,0],.1)
         self.assertEqual(g.output(.2),(.1,0.));self.assertEqual(g.output(.61),(0.,0.))

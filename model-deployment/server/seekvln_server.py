@@ -22,7 +22,9 @@ def load_model():
 
 @app.get("/healthz")
 def healthz():
-    return {"status": "ok", "model_version": MODEL.model_version if MODEL else None}
+    return {"status": "ok", "model_version": MODEL.model_version if MODEL else None,
+            "checkpoint_path": MODEL.model_path if MODEL else None,
+            "checkpoint_metadata_sha256": MODEL.checkpoint_metadata_sha256 if MODEL else None}
 
 
 @app.post("/v1/navigate")
@@ -40,7 +42,8 @@ async def navigate(request: Request):
         images = [Image.open(io.BytesIO(parts[name])).convert("RGB") for name in names]
         result = MODEL.navigate(metadata["phase"], metadata["instruction"], images, metadata.get("mode"))
         result.update({"schema": "elf.seekvln-response.v1", "request_id": metadata["request_id"],
-                       "phase": metadata["phase"], "model_version": MODEL.model_version})
+                       "phase": metadata["phase"], "model_version": MODEL.model_version,
+                       "checkpoint_metadata_sha256": MODEL.checkpoint_metadata_sha256})
         return JSONResponse(result)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))

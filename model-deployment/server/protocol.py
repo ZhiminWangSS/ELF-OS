@@ -18,16 +18,23 @@ def validate_request(metadata, parts):
     if not isinstance(metadata.get("instruction"), str) or not metadata["instruction"].strip():
         raise ValueError("instruction is required")
     names = [item.get("name") for item in metadata.get("frames", [])]
-    if not names or len(names) > MAX_FRAMES or names != sorted(names):
+    if not names or len(names) > MAX_FRAMES or names != sorted(names) or len(names) != len(set(names)):
         raise ValueError("invalid ordered frame manifest")
     if set(names) != set(parts):
         raise ValueError("uploaded frames do not match manifest")
+    history_count = int(metadata.get("num_history_frames", -1))
+    aux_count = int(metadata.get("num_aux_views", -1))
+    if not 1 <= history_count <= 9:
+        raise ValueError("history frame count must be between 1 and 9")
     if metadata["phase"] == "mode" and len(names) != int(metadata.get("num_history_frames", -1)):
         raise ValueError("mode frame count mismatch")
+    if metadata["phase"] == "mode" and aux_count != 0:
+        raise ValueError("mode request cannot include auxiliary views")
     if metadata["phase"] == "action":
         mode = metadata.get("mode")
-        expected = int(metadata.get("num_history_frames", -1)) + (3 if mode == "seek" else 0)
-        if mode not in ("nav", "seek") or len(names) != expected:
+        expected_aux = 3 if mode == "seek" else 0
+        expected = history_count + expected_aux
+        if mode not in ("nav", "seek") or aux_count != expected_aux or len(names) != expected:
             raise ValueError("action frame count/mode mismatch")
     try:
         from PIL import Image

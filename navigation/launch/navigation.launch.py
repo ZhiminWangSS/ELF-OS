@@ -17,5 +17,6 @@ def generate_launch_description():
         nodes.append(Node(package=package,executable=exe,name=name,output='screen',parameters=[params],remappings=[('cmd_vel','/navigation/cmd_vel')]))
     nodes.append(Node(package='nav2_lifecycle_manager',executable='lifecycle_manager',name='navigation_lifecycle',output='screen',parameters=[{'autostart':True,'node_names':['map_server','planner_server','controller_server','bt_navigator']}]))
     nodes.append(ExecuteProcess(cmd=['/usr/bin/python3',str(root/'tools/velocity_bridge.py')],output='screen'))
+    nodes.append(ExecuteProcess(cmd=['/usr/bin/python3',str(root/'tools/rviz_path_bridge.py')],output='screen'))
     nodes.append(Node(package='rviz2',executable='rviz2',arguments=['-d',str(root/'config/navigation.rviz')],condition=IfCondition(LaunchConfiguration('rviz'))))
     return LaunchDescription(nodes)
