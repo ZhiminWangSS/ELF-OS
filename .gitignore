@@ -54,6 +54,7 @@ navigation/maps/
 *.local.yaml
 *.local.yml
 *.local.json
+navigation/config/ssl/
 
 # Third-party repositories managed independently
 mapping/catkin_hengqin_ws/

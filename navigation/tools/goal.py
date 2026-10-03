@@ -38,14 +38,14 @@ def cancel(n):
 def main():
     p=argparse.ArgumentParser();p.add_argument('--x',type=float);p.add_argument('--y',type=float);p.add_argument('--yaw-deg',type=float,default=0.)
     p.add_argument('--navigate',action='store_true');p.add_argument('--cancel',action='store_true');p.add_argument('--timeout',type=float,default=15.)
-    p.add_argument('--max-distance',type=float,default=1.,help='Explicit supervised goal radius; capped at 15 m')
+    p.add_argument('--max-distance',type=float,default=1.,help='Explicit supervised goal radius; capped at 50 m')
     p.add_argument('--allow-long-distance',action='store_true',help='Allow a goal beyond the short supervised-test radius')
     a=p.parse_args();rclpy.init();n=rclpy.create_node('navigation_goal_client');client=None;active=False
     try:
         if a.cancel:stop_worker();cancel(n);return
         if a.x is None or a.y is None or not np.isfinite([a.x,a.y,a.yaw_deg]).all():raise ValueError('Provide finite --x, --y, --yaw-deg')
-        if not 0<=a.timeout<=150 or (a.timeout==0 and not a.allow_long_distance):raise ValueError('Timeout must be 0..150 seconds; 0 is reserved for long-distance navigation')
-        if not (0<a.max_distance<=15 or (a.allow_long_distance and 0<a.max_distance<=1000)):raise ValueError('Max distance must be 0..15 metres, or 0..1000 metres with --allow-long-distance')
+        if not 0<=a.timeout<=400 or (a.timeout==0 and not a.allow_long_distance):raise ValueError('Timeout must be 0..400 seconds; 0 is reserved for long-distance navigation')
+        if not (0<a.max_distance<=50 or (a.allow_long_distance and 0<a.max_distance<=1000)):raise ValueError('Max distance must be 0..50 metres, or 0..1000 metres with --allow-long-distance')
         health=[];poses=[]
         n.create_subscription(Bool,'/navigation/localization_healthy',lambda m:health.append((time.monotonic(),m.data)),10)
         n.create_subscription(Odometry,'/odom',lambda m:poses.append(m),10)
